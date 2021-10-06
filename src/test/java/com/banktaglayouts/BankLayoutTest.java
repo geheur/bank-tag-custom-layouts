@@ -2,6 +2,9 @@ package com.banktaglayouts;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
+import com.banktaglayouts.BankTagLayoutsPlugin.BankItemAndWidget;
+import com.banktaglayouts.BankTagLayoutsPlugin.BankSlot;
+import com.banktaglayouts.Layout.BankItem;
 import com.google.inject.Guice;
 import com.google.inject.Inject;
 import com.google.inject.testing.fieldbinder.Bind;
@@ -13,7 +16,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.widgets.Widget;
@@ -30,7 +32,6 @@ import net.runelite.client.plugins.banktags.TagManager;
 import net.runelite.client.plugins.banktags.tabs.TabInterface;
 import net.runelite.client.ui.overlay.OverlayManager;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -135,8 +136,8 @@ public class BankLayoutTest
 	private static final Item RUNE_PLATEBODY = new Item("rune platebody", 1127, 14106, -1);
 	private static final Item RUNE_PLATEBODY_PH = new Item("rune platebody ph", 14106, 1127, -1);
 
-	private static final Item GAMES_NECKLACE_1_PH = new Item("Games necklace (1) ph", 21460, 3867, 3867, true);
-    private static final Item GAMES_NECKLACE_8_PH = new Item("Games necklace (8) ph", 16362, 3852, 3867, true);
+	private static final Item GAMES_NECKLACE_1_PH = new Item("Games necklace (1) ph", 21460, 3867, -1, true);
+    private static final Item GAMES_NECKLACE_8_PH = new Item("Games necklace (8) ph", 16362, 3853, -1, true);
     private static final Item GAMES_NECKLACE_8 = new Item("Games necklace (8)", 3867, 16362, 3867);
     private static final Item GAMES_NECKLACE_7 = new Item("Games necklace (7)", 3865, -1, 3867);
     private static final Item GAMES_NECKLACE_6 = new Item("Games necklace (6)", 3863, -1, 3867);
@@ -147,9 +148,20 @@ public class BankLayoutTest
     private static final Item GAMES_NECKLACE_1 = new Item("Games necklace (1)", 3853, 21460, 3867);
 
     private static final Item STRANGE_LOCKPICK_FULL = new Item("Strange lockpick (full)", 24740, 24742, 24738);
-    private static final Item STRANGE_LOCKPICK_FULL_PH = new Item("Strange lockpick (full) ph", 24742, 24740, 24738, true);
+    private static final Item STRANGE_LOCKPICK_FULL_PH = new Item("Strange lockpick (full) ph", 24742, 24740, -1, true);
     private static final Item STRANGE_LOCKPICK_USED = new Item("Strange lockpick (used)", 24738, 24739, 24738);
-    private static final Item STRANGE_LOCKPICK_USED_PH = new Item("Strange lockpick (used) ph", 24739, 24738, 24738, true);
+    private static final Item STRANGE_LOCKPICK_USED_PH = new Item("Strange lockpick (used) ph", 24739, 24738, -1, true);
+
+	private static final Item SERP_HELM = new Item("Serp helm", 	12931, 15317, 12929);
+	private static final Item SERP_HELM_PH = new Item("Serp helm (ph)", 15317, 12931, -1, true);
+	private static final Item MAGMA_SERP_HELM = new Item("Magma helm", 13199, 15319, 12929);
+	private static final Item MAGMA_SERP_HELM_PH = new Item("Magma helm (ph)", 15319, 13199, -1, true);
+
+	private static boolean isPlaceholder(int itemId)
+	{
+		Item item = itemsById.get(itemId);
+		return item.placeholder;
+	}
 
     /*
     Things to test both variant and non-variant.
@@ -164,30 +176,30 @@ public class BankLayoutTest
     public void testAddNewItemVariant() {
         currentLayout = generateLayout(
         );
-        List<Widget> bankItems = Arrays.asList(
-                createBankItemWidget(GAMES_NECKLACE_8)
+        List<BankTagLayoutsPlugin.BankItemAndWidget> bankItems = generateBankItems(
+                GAMES_NECKLACE_8
         );
 
         LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
         LaidOutBank expectedLaidOutBank = createLaidOutBank(
-                0, BankSlot.realItem(GAMES_NECKLACE_8)
+                0, realItem(GAMES_NECKLACE_8)
         );
         System.out.println("real bank: " + laidOutBank);
         System.out.println("expected bank: " + expectedLaidOutBank);
         assertEquals(expectedLaidOutBank, laidOutBank);
     }
 
-    @Test
+	@Test
     public void testAddNewItemNonVariant() {
         currentLayout = generateLayout(
         );
-        List<Widget> bankItems = Arrays.asList(
-                createBankItemWidget(MAGIC_LOGS)
+        List<BankTagLayoutsPlugin.BankItemAndWidget> bankItems = generateBankItems(
+                MAGIC_LOGS
         );
 
         LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
         LaidOutBank expectedLaidOutBank = createLaidOutBank(
-                0, BankSlot.realItem(MAGIC_LOGS)
+                0, realItem(MAGIC_LOGS)
         );
         System.out.println("real bank: " + laidOutBank);
         System.out.println("expected bank: " + expectedLaidOutBank);
@@ -196,22 +208,25 @@ public class BankLayoutTest
 
     @Test
     public void testMoveItems() {
-        List<Item> layoutItems = Arrays.asList(GAMES_NECKLACE_8, GAMES_NECKLACE_8_PH, MAGIC_LOGS);
-        List<Item> realItems = Arrays.asList(GAMES_NECKLACE_8, GAMES_NECKLACE_8_PH, MAGIC_LOGS);
+		List<BankItem> layoutItems = Arrays.asList(new BankItem(GAMES_NECKLACE_8.id), new BankItem(GAMES_NECKLACE_8_PH.id), new BankItem(MAGIC_LOGS.id), new BankItem(GAMES_NECKLACE_8.id, 1), new BankItem(GAMES_NECKLACE_8_PH.id, 1), new BankItem(MAGIC_LOGS.id, 1));
+		List<BankItem> realItems = Arrays.asList(new BankItem(GAMES_NECKLACE_8.id), new BankItem(GAMES_NECKLACE_8_PH.id), new BankItem(MAGIC_LOGS.id), new BankItem(GAMES_NECKLACE_8.id, 1), new BankItem(GAMES_NECKLACE_8_PH.id, 1), new BankItem(MAGIC_LOGS.id, 1));
 		List<BankSlot.Type> targetTypes = Arrays.asList(BankSlot.Type.DUPLICATE_ITEM, BankSlot.Type.LAYOUT_PLACEHOLDER, BankSlot.Type.REAL_ITEM, null);
-		for (Item targetLayoutItem : realItems)
+		for (BankItem targetLayoutItem : realItems)
 		{
 			for (BankSlot.Type targetType : targetTypes)
 			{
 				for (int i = 0; i < layoutItems.size(); i++)
 				{
-					Item layoutItem = layoutItems.get(i);
-					Item realItem = realItems.get(i);
+					BankItem layoutItem = layoutItems.get(i);
+					BankItem realItem = realItems.get(i);
 					if (targetLayoutItem.equals(layoutItem) || targetLayoutItem.equals(realItem)) continue;
+					if (targetLayoutItem.getUnstackableIndex() == 1 && layoutItem.getUnstackableIndex() == 1) {
+						System.out.println("hello");
+					}
 					testMoveItem(layoutItem, layoutItem, targetLayoutItem, targetType);
 					testMoveItem(layoutItem, realItem, targetLayoutItem, targetType);
-					testMoveItem(layoutItem, layoutItem, targetLayoutItem, targetType);
-					testMoveItem(layoutItem, realItem, targetLayoutItem, targetType);
+					testMoveItem(realItem, layoutItem, targetLayoutItem, targetType);
+					testMoveItem(realItem, realItem, targetLayoutItem, targetType);
 				}
 			}
 		}
@@ -226,7 +241,7 @@ public class BankLayoutTest
     layout placeholder means swap with a layout placeholder.
     real means swap with a different real item.
      */
-    private void testMoveItem(Item layoutItem, Item realItem, Item targetLayoutItem, BankSlot.Type targetType)
+    private void testMoveItem(BankItem layoutItem, BankItem realItem, BankItem targetLayoutItem, BankSlot.Type targetType)
     {
     	System.out.println("testMoveItem " + targetType + ": " + layoutItem + " (" + realItem + "), " + targetLayoutItem);
         /*
@@ -241,12 +256,12 @@ public class BankLayoutTest
         int targetIndex = targetType == null ? 2 : targetType == BankSlot.Type.DUPLICATE_ITEM ? 4 : 6;
 
         currentLayout = generateLayout(
-                new LayoutItem(layoutItem, 1),
-                new LayoutItem(layoutItem, 4),
-                new LayoutItem(targetLayoutItem, 6),
-                new LayoutItem(targetLayoutItem, 7)
+                layoutItem, 1,
+                layoutItem, 4,
+                targetLayoutItem, 6,
+                targetLayoutItem, 7
         );
-        List<Widget> bankItems = new ArrayList<>();
+        List<BankTagLayoutsPlugin.BankItemAndWidget> bankItems = new ArrayList<>();
         if (!isLayoutPlaceholder)
         {
             bankItems.add(createBankItemWidget(realItem));
@@ -258,42 +273,42 @@ public class BankLayoutTest
 
         LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
         LaidOutBank expectedLaidOutBank = createLaidOutBank(
-                1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.realItem(realItem),
-                4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.duplicateItem(realItem),
-                6, targetType == BankSlot.Type.LAYOUT_PLACEHOLDER ? BankSlot.layoutPlaceholder(targetLayoutItem) : BankSlot.realItem(targetLayoutItem),
-                7, targetType == BankSlot.Type.LAYOUT_PLACEHOLDER ? BankSlot.layoutPlaceholder(targetLayoutItem) : BankSlot.duplicateItem(targetLayoutItem)
+                1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : realItem(realItem),
+                4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : duplicateItem(realItem),
+                6, targetType == BankSlot.Type.LAYOUT_PLACEHOLDER ? BankSlot.layoutPlaceholder(targetLayoutItem) : realItem(targetLayoutItem),
+                7, targetType == BankSlot.Type.LAYOUT_PLACEHOLDER ? BankSlot.layoutPlaceholder(targetLayoutItem) : duplicateItem(targetLayoutItem)
         );
         System.out.println("real bank: " + laidOutBank);
         System.out.println("expected bank: " + expectedLaidOutBank);
         assertEquals(expectedLaidOutBank, laidOutBank);
 
-        currentLayout.moveItem(1, targetIndex, realItem != null ? realItem.id : layoutItem.id);
+        currentLayout.moveItem(1, targetIndex, realItem != null ? realItem : layoutItem);
 
         laidOutBank = layOutBank(currentLayout, bankItems);
         expectedLaidOutBank = createLaidOutBank();
         if (targetType == null) {
-			expectedLaidOutBank.add(2, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.realItem(realItem));
-			expectedLaidOutBank.add(4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.duplicateItem(realItem));
-			expectedLaidOutBank.add(6, BankSlot.realItem(targetLayoutItem));
-			expectedLaidOutBank.add(7, BankSlot.duplicateItem(targetLayoutItem));
+			expectedLaidOutBank.add(2, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : realItem(realItem));
+			expectedLaidOutBank.add(4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : duplicateItem(realItem));
+			expectedLaidOutBank.add(6, realItem(targetLayoutItem));
+			expectedLaidOutBank.add(7, duplicateItem(targetLayoutItem));
 			if (realItem != null)
 			{
 				checkCurrentLayout(2, realItem);
 				checkCurrentLayout(4, realItem);
 			}
 		} else if (targetType == BankSlot.Type.DUPLICATE_ITEM) {
-			expectedLaidOutBank.add(1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.realItem(realItem));
-			expectedLaidOutBank.add(4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.duplicateItem(realItem));
-			expectedLaidOutBank.add(6, BankSlot.realItem(targetLayoutItem));
-			expectedLaidOutBank.add(7, BankSlot.duplicateItem(targetLayoutItem));
+			expectedLaidOutBank.add(1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : realItem(realItem));
+			expectedLaidOutBank.add(4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : duplicateItem(realItem));
+			expectedLaidOutBank.add(6, realItem(targetLayoutItem));
+			expectedLaidOutBank.add(7, duplicateItem(targetLayoutItem));
 			if (realItem != null)
 			{
 				checkCurrentLayout(1, realItem);
 				checkCurrentLayout(4, realItem);
 			}
 		} else if (targetType == BankSlot.Type.LAYOUT_PLACEHOLDER) {
-			expectedLaidOutBank.add(4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.realItem(realItem));
-			expectedLaidOutBank.add(6, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.duplicateItem(realItem));
+			expectedLaidOutBank.add(4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : realItem(realItem));
+			expectedLaidOutBank.add(6, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : duplicateItem(realItem));
 			expectedLaidOutBank.add(1, BankSlot.layoutPlaceholder(targetLayoutItem));
 			expectedLaidOutBank.add(7, BankSlot.layoutPlaceholder(targetLayoutItem));
 			if (realItem != null)
@@ -302,10 +317,10 @@ public class BankLayoutTest
 				checkCurrentLayout(4, realItem);
 			}
 		} else if (targetType == BankSlot.Type.REAL_ITEM) {
-			expectedLaidOutBank.add(4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.realItem(realItem));
-			expectedLaidOutBank.add(6, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : BankSlot.duplicateItem(realItem));
-			expectedLaidOutBank.add(1, BankSlot.realItem(targetLayoutItem));
-			expectedLaidOutBank.add(7, BankSlot.duplicateItem(targetLayoutItem));
+			expectedLaidOutBank.add(4, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : realItem(realItem));
+			expectedLaidOutBank.add(6, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(layoutItem) : duplicateItem(realItem));
+			expectedLaidOutBank.add(1, realItem(targetLayoutItem));
+			expectedLaidOutBank.add(7, duplicateItem(targetLayoutItem));
 			if (realItem != null)
 			{
 				checkCurrentLayout(6, realItem);
@@ -317,54 +332,80 @@ public class BankLayoutTest
         assertEquals(expectedLaidOutBank, laidOutBank);
     }
 
-    @Test
+	@Test
     public void testDuplicateItems()
 	{
-		List<Item> layoutItems = Arrays.asList(GAMES_NECKLACE_8, GAMES_NECKLACE_8_PH, MAGIC_LOGS);
-		List<Item> realItems = Arrays.asList(GAMES_NECKLACE_8, GAMES_NECKLACE_8_PH, MAGIC_LOGS);
-		for (Item targetLayoutItem : realItems)
+		List<BankItem> layoutItems = Arrays.asList(new BankItem(GAMES_NECKLACE_8.id), new BankItem(GAMES_NECKLACE_8_PH.id), new BankItem(MAGIC_LOGS.id));
+		List<BankItem> realItems = Arrays.asList(new BankItem(GAMES_NECKLACE_8.id), new BankItem(GAMES_NECKLACE_8_PH.id), new BankItem(MAGIC_LOGS.id));
+		for (BankItem targetLayoutItem : realItems)
 		{
 			for (int i = 0; i < layoutItems.size(); i++)
 			{
-				Item layoutItem = layoutItems.get(i);
-				Item realItem = realItems.get(i);
+				// TODO aren't these always the same?
+				BankItem layoutItem = layoutItems.get(i);
+				BankItem realItem = realItems.get(i);
 				if (targetLayoutItem.equals(layoutItem) || targetLayoutItem.equals(realItem)) continue;
+				System.out.println("test duplicate item " + layoutItem + " " + realItem);
+				System.out.println("1");
 				testDuplicateItem(layoutItem, layoutItem);
+				System.out.println("2");
 				testDuplicateItem(layoutItem, realItem);
-				testDuplicateItem(layoutItem, layoutItem);
-				testDuplicateItem(layoutItem, realItem);
+				System.out.println("3");
+				testDuplicateItem(realItem, layoutItem);
+				System.out.println("4");
+				testDuplicateItem(realItem, realItem);
 			}
 		}
+
+		/*
+		List<BankItem> layoutItems = Arrays.asList(new BankItem(GAMES_NECKLACE_8.id), new BankItem(GAMES_NECKLACE_8_PH.id), new BankItem(MAGIC_LOGS.id));
+		List<BankItem> realItems = Arrays.asList(new BankItem(GAMES_NECKLACE_8.id), new BankItem(GAMES_NECKLACE_8_PH.id), new BankItem(MAGIC_LOGS.id));
+		for (BankItem targetLayoutItem : realItems)
+		{
+			for (BankItem layoutItem : layoutItems)
+			{
+				if (targetLayoutItem.equals(layoutItem)) continue;
+				testDuplicateItem(layoutItem, layoutItem);
+				testDuplicateItem(layoutItem, targetLayoutItem);
+				testDuplicateItem(targetLayoutItem, layoutItem);
+				testDuplicateItem(targetLayoutItem, targetLayoutItem);
+			}
+		}
+		 */
 	}
 
-	private void testDuplicateItem(Item layoutItem, Item realItem)
+	private void testDuplicateItem(BankItem layoutItem, BankItem realItem)
 	{
 		boolean isLayoutPlaceholder = realItem == null;
 		if (realItem == null) realItem = layoutItem;
 		currentLayout = generateLayout(
-			new LayoutItem(layoutItem, 1),
-			new LayoutItem(layoutItem, 2)
+			layoutItem, 1,
+			layoutItem, 2
 		);
-		List<Widget> bankItems = isLayoutPlaceholder
+		List<BankItemAndWidget> bankItems = isLayoutPlaceholder
 			? Collections.emptyList()
-			: Arrays.asList(createBankItemWidget(realItem));
+			: generateBankItems(itemsById.get(realItem.getItemId()));
 
 		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
 		LaidOutBank expectedLaidOutBank = createLaidOutBank(
-			1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.realItem(realItem),
-			2, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.duplicateItem(realItem)
+			1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : realItem(realItem),
+			2, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : duplicateItem(realItem)
 		);
 		System.out.println("real bank: " + laidOutBank);
 		System.out.println("expected bank: " + expectedLaidOutBank);
 		assertEquals(expectedLaidOutBank, laidOutBank);
 
-		currentLayout.duplicateItem(1, isLayoutPlaceholder ? -1 : realItem.id);
+		if (isLayoutPlaceholder) {
+			currentLayout.duplicateItem(1);
+		} else {
+			currentLayout.duplicateItem(1, realItem);
+		}
 
 		laidOutBank = layOutBank(currentLayout, bankItems);
 		expectedLaidOutBank = createLaidOutBank(
-			1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.realItem(realItem),
-			2, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.duplicateItem(realItem),
-			3, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.duplicateItem(realItem)
+			1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : realItem(realItem),
+			2, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : duplicateItem(realItem),
+			3, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : duplicateItem(realItem)
 		);
 		assertEquals(expectedLaidOutBank, laidOutBank);
 
@@ -387,8 +428,8 @@ public class BankLayoutTest
 				if (targetLayoutItem.equals(layoutItem) || targetLayoutItem.equals(realItem)) continue;
 				testRemoveDuplicateItem(layoutItem, layoutItem);
 				testRemoveDuplicateItem(layoutItem, realItem);
-				testRemoveDuplicateItem(layoutItem, layoutItem);
-				testRemoveDuplicateItem(layoutItem, realItem);
+				testRemoveDuplicateItem(realItem, layoutItem);
+				testRemoveDuplicateItem(realItem, realItem);
 			}
 		}
 	}
@@ -398,19 +439,19 @@ public class BankLayoutTest
 		boolean isLayoutPlaceholder = realItem == null;
 		if (realItem == null) realItem = layoutItem;
 		currentLayout = generateLayout(
-			new LayoutItem(layoutItem, 1),
-			new LayoutItem(layoutItem, 2),
-			new LayoutItem(layoutItem, 3)
+			layoutItem, 1,
+			layoutItem, 2,
+			layoutItem, 3
 		);
-		List<Widget> bankItems = isLayoutPlaceholder
+		List<BankItemAndWidget> bankItems = isLayoutPlaceholder
 			? Collections.emptyList()
-			: Arrays.asList(createBankItemWidget(realItem));
+			: generateBankItems(realItem);
 
 		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
 		LaidOutBank expectedLaidOutBank = createLaidOutBank(
-			1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.realItem(realItem),
-			2, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.duplicateItem(realItem),
-			3, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.duplicateItem(realItem)
+			1, isLayoutPlaceholder ? layoutPlaceholder(realItem) : realItem(realItem),
+			2, isLayoutPlaceholder ? layoutPlaceholder(realItem) : duplicateItem(realItem),
+			3, isLayoutPlaceholder ? layoutPlaceholder(realItem) : duplicateItem(realItem)
 		);
 		System.out.println("real bank: " + laidOutBank);
 		System.out.println("expected bank: " + expectedLaidOutBank);
@@ -420,9 +461,9 @@ public class BankLayoutTest
 
 		laidOutBank = layOutBank(currentLayout, bankItems);
 		expectedLaidOutBank = createLaidOutBank(
-			1, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.realItem(realItem),
-//			2, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.duplicateItem(realItem),
-			3, isLayoutPlaceholder ? BankSlot.layoutPlaceholder(realItem) : BankSlot.duplicateItem(realItem)
+			1, isLayoutPlaceholder ? layoutPlaceholder(realItem) : realItem(realItem),
+//			2, isLayoutPlaceholder ? layoutPlaceholder(realItem) : duplicateItem(realItem),
+			3, isLayoutPlaceholder ? layoutPlaceholder(realItem) : duplicateItem(realItem)
 		);
 		System.out.println("real bank: " + laidOutBank);
 		System.out.println("expected bank: " + expectedLaidOutBank);
@@ -433,120 +474,121 @@ public class BankLayoutTest
 		checkCurrentLayout(3, realItem);
 	}
 
-    @Test
+	@Test
     public void testDuplicatingLayoutPlaceholder() {
         currentLayout = generateLayout(
-                new LayoutItem(GAMES_NECKLACE_5, 4)
+                GAMES_NECKLACE_5, 4
         );
-        List<Widget> bankItems = Arrays.asList(
+        List<BankItemAndWidget> bankItems = generateBankItems(
         );
 
         LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
         LaidOutBank expectedLaidOutBank = createLaidOutBank(
-                4, BankSlot.layoutPlaceholder(GAMES_NECKLACE_5)
+                4, layoutPlaceholder(GAMES_NECKLACE_5)
         );
         System.out.println("real bank: " + laidOutBank);
         System.out.println("expected bank: " + expectedLaidOutBank);
         assertEquals(expectedLaidOutBank, laidOutBank);
 
         System.out.println("layout before: " + currentLayout);
-        currentLayout.duplicateItem(4, -1);
+        currentLayout.duplicateItem(4);
         System.out.println("layout after: " + currentLayout);
 
         laidOutBank = layOutBank(currentLayout, bankItems);
         expectedLaidOutBank = createLaidOutBank(
-                4, BankSlot.layoutPlaceholder(GAMES_NECKLACE_5),
-                5, BankSlot.layoutPlaceholder(GAMES_NECKLACE_5)
+                4, layoutPlaceholder(GAMES_NECKLACE_5),
+                5, layoutPlaceholder(GAMES_NECKLACE_5)
         );
         System.out.println("real bank: " + laidOutBank);
         System.out.println("expected bank: " + expectedLaidOutBank);
         assertEquals(expectedLaidOutBank, laidOutBank);
     }
 
-    @Test
-    public void testThatItemsThatShowUpMoreThanOnceInTheBankDoNotTakeUpPlaceholderSlots() {
-        currentLayout = generateLayout(
-                new LayoutItem(STRANGE_LOCKPICK_USED, 4),
-                new LayoutItem(STRANGE_LOCKPICK_USED_PH, 7)
-        );
-        List<Widget> bankItems = Arrays.asList(
-                createBankItemWidget(STRANGE_LOCKPICK_USED),
-                createBankItemWidget(STRANGE_LOCKPICK_USED)
-        );
-
-        LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
-        LaidOutBank expectedLaidOutBank = createLaidOutBank(
-                4, BankSlot.realItem(STRANGE_LOCKPICK_USED),
-                7, BankSlot.layoutPlaceholder(STRANGE_LOCKPICK_USED_PH)
-        );
-        System.out.println("real bank: " + laidOutBank);
-        System.out.println("expected bank: " + expectedLaidOutBank);
-        assertEquals(expectedLaidOutBank, laidOutBank);
-    }
-
-    @Test
-    public void testThatItemsThatShowUpInMultipleRealBankSlotsOnlyAppearOnceInLaidOutBankTab() {
-        currentLayout = generateLayout(
-                new LayoutItem(STRANGE_LOCKPICK_USED, 4),
-                new LayoutItem(STRANGE_LOCKPICK_FULL, 7)
-        );
-        List<Widget> bankItems = Arrays.asList(
-                createBankItemWidget(STRANGE_LOCKPICK_USED),
-                createBankItemWidget(STRANGE_LOCKPICK_FULL),
-                createBankItemWidget(STRANGE_LOCKPICK_FULL),
-                createBankItemWidget(STRANGE_LOCKPICK_USED)
-        );
-
-        LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
-        LaidOutBank expectedLaidOutBank = createLaidOutBank(
-                4, BankSlot.realItem(STRANGE_LOCKPICK_USED),
-                7, BankSlot.realItem(STRANGE_LOCKPICK_FULL)
-        );
-        System.out.println("real bank: " + laidOutBank);
-        System.out.println("expected bank: " + expectedLaidOutBank);
-        assertEquals(expectedLaidOutBank, laidOutBank);
-    }
-
+    // TODO might a test like this still hold value?
+//    @Test
+//    public void testThatItemsThatShowUpMoreThanOnceInTheBankDoNotTakeUpPlaceholderSlots() {
+//        currentLayout = generateLayout(
+//                new LayoutItem(STRANGE_LOCKPICK_USED, 4),
+//                new LayoutItem(STRANGE_LOCKPICK_USED_PH, 7)
+//        );
+//        List<BankItemAndWidget> bankItems = Arrays.asList(
+//                createBankItemWidget(STRANGE_LOCKPICK_USED),
+//                createBankItemWidget(STRANGE_LOCKPICK_USED)
+//        );
+//
+//        LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+//        LaidOutBank expectedLaidOutBank = createLaidOutBank(
+//                4, BankSlot.realItem(STRANGE_LOCKPICK_USED),
+//                7, BankSlot.layoutPlaceholder(STRANGE_LOCKPICK_USED_PH)
+//        );
+//        System.out.println("real bank: " + laidOutBank);
+//        System.out.println("expected bank: " + expectedLaidOutBank);
+//        assertEquals(expectedLaidOutBank, laidOutBank);
+//    }
+//
+//    @Test
+//    public void testThatItemsThatShowUpInMultipleRealBankSlotsOnlyAppearOnceInLaidOutBankTab() {
+//        currentLayout = generateLayout(
+//                new LayoutItem(STRANGE_LOCKPICK_USED, 4),
+//                new LayoutItem(STRANGE_LOCKPICK_FULL, 7)
+//        );
+//        List<BankItemAndWidget> bankItems = Arrays.asList(
+//                createBankItemWidget(STRANGE_LOCKPICK_USED),
+//                createBankItemWidget(STRANGE_LOCKPICK_FULL),
+//                createBankItemWidget(STRANGE_LOCKPICK_FULL),
+//                createBankItemWidget(STRANGE_LOCKPICK_USED)
+//        );
+//
+//        LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+//        LaidOutBank expectedLaidOutBank = createLaidOutBank(
+//                4, BankSlot.realItem(STRANGE_LOCKPICK_USED),
+//                7, BankSlot.realItem(STRANGE_LOCKPICK_FULL)
+//        );
+//        System.out.println("real bank: " + laidOutBank);
+//        System.out.println("expected bank: " + expectedLaidOutBank);
+//        assertEquals(expectedLaidOutBank, laidOutBank);
+//    }
+//
     // If I move a games neck (5) that is at a layout spot that is something else like games neck (1), then all games
     // neck (1) parts of the layout should be updated to be games neck (5), but the item it's dragged on to should
     // continue to use the original id in the layout.
     @Test
     public void testMoveDuplicateItemUpdatesActualItemId() {
         currentLayout = generateLayout(
-                new LayoutItem(GAMES_NECKLACE_5, 4),
-                new LayoutItem(GAMES_NECKLACE_5, 5),
+                GAMES_NECKLACE_5, 4,
+                GAMES_NECKLACE_5, 5,
 
-                new LayoutItem(GAMES_NECKLACE_1, 6),
-                new LayoutItem(GAMES_NECKLACE_1, 7)
+                GAMES_NECKLACE_1, 6,
+                GAMES_NECKLACE_1, 7
         );
-        List<Widget> bankItems = Arrays.asList(
-                createBankItemWidget(GAMES_NECKLACE_6),
-                createBankItemWidget(GAMES_NECKLACE_2)
+        List<BankItemAndWidget> bankItems = generateBankItems(
+                GAMES_NECKLACE_6,
+                GAMES_NECKLACE_2
         );
 
         LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
         LaidOutBank expectedLaidOutBank = createLaidOutBank(
-                4, BankSlot.realItem(GAMES_NECKLACE_6),
-                5, BankSlot.duplicateItem(GAMES_NECKLACE_6),
+                4, realItem(GAMES_NECKLACE_6),
+                5, duplicateItem(GAMES_NECKLACE_6),
 
-                6, BankSlot.realItem(GAMES_NECKLACE_2),
-                7, BankSlot.duplicateItem(GAMES_NECKLACE_2)
+                6, realItem(GAMES_NECKLACE_2),
+                7, duplicateItem(GAMES_NECKLACE_2)
         );
         System.out.println("real bank: " + laidOutBank);
         System.out.println("expected bank: " + expectedLaidOutBank);
         assertEquals(expectedLaidOutBank, laidOutBank);
 
         System.out.println("layout before: " + currentLayout);
-        currentLayout.moveItem(4, 6, GAMES_NECKLACE_6.id);
+        currentLayout.moveItem(4, 6, new BankItem(GAMES_NECKLACE_6.id));
         System.out.println("layout after: " + currentLayout);
 
         laidOutBank = layOutBank(currentLayout, bankItems);
         expectedLaidOutBank = createLaidOutBank(
-                4, BankSlot.realItem(GAMES_NECKLACE_2),
-                5, BankSlot.realItem(GAMES_NECKLACE_6),
+                4, realItem(GAMES_NECKLACE_2),
+                5, realItem(GAMES_NECKLACE_6),
 
-                6, BankSlot.duplicateItem(GAMES_NECKLACE_6),
-                7, BankSlot.duplicateItem(GAMES_NECKLACE_2)
+                6, duplicateItem(GAMES_NECKLACE_6),
+                7, duplicateItem(GAMES_NECKLACE_2)
         );
         System.out.println("real bank: " + laidOutBank);
         System.out.println("expected bank: " + expectedLaidOutBank);
@@ -563,30 +605,30 @@ public class BankLayoutTest
     @Test
     public void testMoveVariantItemOntoLayoutPlaceholderOfSameBaseVariant() {
         currentLayout = generateLayout(
-                new LayoutItem(GAMES_NECKLACE_5, 4),
-                new LayoutItem(GAMES_NECKLACE_1, 5)
+                GAMES_NECKLACE_5, 4,
+                GAMES_NECKLACE_1, 5
         );
-        List<Widget> bankItems = Arrays.asList(
-                createBankItemWidget(GAMES_NECKLACE_5)
+        List<BankItemAndWidget> bankItems = generateBankItems(
+                GAMES_NECKLACE_5
         );
 
         LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
         LaidOutBank expectedLaidOutBank = createLaidOutBank(
-                4, BankSlot.realItem(GAMES_NECKLACE_5),
-                5, BankSlot.layoutPlaceholder(GAMES_NECKLACE_1.id)
+                4, realItem(GAMES_NECKLACE_5),
+                5, layoutPlaceholder(GAMES_NECKLACE_1)
         );
         System.out.println("real bank: " + laidOutBank);
         System.out.println("expected bank: " + expectedLaidOutBank);
         assertEquals(expectedLaidOutBank, laidOutBank);
 
         System.out.println("layout before: " + currentLayout);
-        currentLayout.moveItem(4, 5, GAMES_NECKLACE_5.id);
+        currentLayout.moveItem(4, 5, new BankItem(GAMES_NECKLACE_5.id));
         System.out.println("layout after: " + currentLayout);
 
         laidOutBank = layOutBank(currentLayout, bankItems);
         expectedLaidOutBank = createLaidOutBank(
-                5, BankSlot.realItem(GAMES_NECKLACE_5),
-                4, BankSlot.layoutPlaceholder(GAMES_NECKLACE_1.id)
+                5, realItem(GAMES_NECKLACE_5),
+                4, layoutPlaceholder(GAMES_NECKLACE_1)
         );
         System.out.println("real bank: " + laidOutBank);
         System.out.println("expected bank: " + expectedLaidOutBank);
@@ -596,21 +638,21 @@ public class BankLayoutTest
     @Test
     public void testLayout() {
         currentLayout = generateLayout(
-                new LayoutItem(GAMES_NECKLACE_8, 1),
-                new LayoutItem(GAMES_NECKLACE_1, 8),
-                new LayoutItem(GAMES_NECKLACE_1_PH, 9)
+                GAMES_NECKLACE_8, 1,
+                GAMES_NECKLACE_1, 8,
+                GAMES_NECKLACE_1_PH, 9
         );
-        List<Widget> bankItems = Arrays.asList(
-                createBankItemWidget(GAMES_NECKLACE_8, 70),
-                createBankItemWidget(GAMES_NECKLACE_1_PH)
+        List<BankItemAndWidget> bankItems = generateBankItems(
+                GAMES_NECKLACE_8,
+                GAMES_NECKLACE_1_PH
         );
 
         LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
 
         Map<Integer, BankSlot> expectedBank = new HashMap<>();
-        expectedBank.put(1, BankSlot.realItem(GAMES_NECKLACE_8, 70));
-        expectedBank.put(8, BankSlot.layoutPlaceholder(GAMES_NECKLACE_1.id));
-        expectedBank.put(9, BankSlot.realItem(GAMES_NECKLACE_1_PH));
+        expectedBank.put(1, realItem(GAMES_NECKLACE_8));
+        expectedBank.put(8, layoutPlaceholder(GAMES_NECKLACE_1));
+        expectedBank.put(9, realItem(GAMES_NECKLACE_1_PH));
         LaidOutBank expectedLaidOutBank = new LaidOutBank(expectedBank);
 
         System.out.println("real bank: " + laidOutBank);
@@ -619,7 +661,7 @@ public class BankLayoutTest
         assertEquals(expectedLaidOutBank, laidOutBank);
     }
 
-    private LaidOutBank createLaidOutBank(Object... arr)
+	private LaidOutBank createLaidOutBank(Object... arr)
     {
         Map<Integer, BankSlot> map = new HashMap<>();
         assert arr.length % 2 == 0;
@@ -632,128 +674,106 @@ public class BankLayoutTest
         return new LaidOutBank(map);
     }
 
-    public static class BankSlot {
-        enum Type {
-            REAL_ITEM, DUPLICATE_ITEM, LAYOUT_PLACEHOLDER
-        }
+//    @Value
+//    public static class BankSlot {
+//        enum Type {
+//            REAL_ITEM, DUPLICATE_ITEM, LAYOUT_PLACEHOLDER
+//        }
+//
+//        Type type;
+//		BankItem bankItem;
+//        int quantity;
+//
+//        public static BankSlot realItem(Item item) {
+//            int quantity = item.placeholder ? 0 : 1;
+//            return realItem(item, quantity);
+//        }
+//
+//		public static BankSlot realItem(Item item, int quantity) {
+//			return new BankSlot(Type.REAL_ITEM, new BankItem(item.id), quantity);
+//        }
+//
+//		public static BankSlot realItem(Widget widget) {
+//            return new BankSlot(Type.REAL_ITEM, new BankItem(widget.getItemId()), widget.getItemQuantity());
+//        }
+//
+//		public static BankSlot realItem(BankItem bankItem) {
+//			int quantity = isPlaceholder(bankItem.getItemId()) ? 0 : 1;
+//			return new BankSlot(Type.REAL_ITEM, bankItem, quantity);
+//		}
+//
+//		// TODO what if I have a 1-dose ppot as a fake with duplicates - will a 4-dose fill all the spots of that?
+//
+//        // TODO what if i create a duplicate when the wrong item is in a fake item? e.g. 1-dose ppot is in layout but there is a 4-dose appearing there, and I then duplicate that?
+//
+//        public static BankSlot duplicateItem(Item item) {
+//            return duplicateItem(item, item.placeholder ? 0 : 1);
+//        }
+//
+//		public static BankSlot duplicateItem(Item item, int quantity) {
+//			return duplicateItem(new BankItem(item.id), quantity);
+//		}
+//
+//		public static BankSlot duplicateItem(BankItem bankItem) {
+//			return duplicateItem(bankItem, isPlaceholder(bankItem.getItemId()) ? 0 : 1);
+//		}
+//
+//		public static BankSlot duplicateItem(BankItem bankItem, int quantity) {
+//			return new BankSlot(Type.DUPLICATE_ITEM, bankItem, quantity);
+//		}
+//
+//		public static BankSlot layoutPlaceholder(BankItem bankItem) {
+//            return new BankSlot(Type.LAYOUT_PLACEHOLDER, bankItem, -1);
+//        }
+//
+//        public static BankSlot layoutPlaceholder(Item item) {
+//            return layoutPlaceholder(new BankItem(item.id));
+//        }
+//
+//        @Override
+//        public String toString()
+//        {
+//            Item item = itemsById.get(bankItem.getItemId());
+////            System.out.println("tostring: " + id + " " + item + " " + type);
+//            String typeString = type == Type.LAYOUT_PLACEHOLDER ? " lph" : type == Type.REAL_ITEM ? "" : " dup";
+//            return "{" +
+//                    item.name + " " + bankItem.getUnstackableIndex() + typeString +
+//                    (type == Type.REAL_ITEM ? " (" + quantity + ")" : "") +
+//                    '}';
+//        }
+//    }
+//
+	private BankTagLayoutsPlugin.BankItemAndWidget createBankItemWidget(BankItem bankItem)
+	{
+		return new BankTagLayoutsPlugin.BankItemAndWidget(bankItem, tempName(bankItem.getItemId(), isPlaceholder(bankItem.getItemId()) ? 0 : 1));
+	}
 
-        private final Type type;
-        private final Widget widget;
-        private final int id;
-        private final int quantity;
-
-        private BankSlot(Type type, int id, Widget widget, int quantity) {
-            this.type = type;
-            this.widget = widget;
-            this.id = id;
-            this.quantity = quantity;
-        }
-
-        public static BankSlot realItem(Item item) {
-            int quantity = item.placeholder ? 0 : 1;
-            return realItem(item, quantity);
-        }
-
-        public static BankSlot realItem(Item item, int quantity) {
-            return new BankSlot(Type.REAL_ITEM, item.id, null, quantity);
-        }
-
-        public static BankSlot realItem(Widget widget) {
-            return new BankSlot(Type.REAL_ITEM, widget.getItemId(), widget, widget.getItemQuantity());
-        }
-
-        // TODO what if I have a 1-dose ppot as a fake with duplicates - will a 4-dose fill all the spots of that?
-
-        // TODO what if i create a duplicate when the wrong item is in a fake item? e.g. 1-dose ppot is in layout but there is a 4-dose appearing there, and I then duplicate that?
-
-        public static BankSlot duplicateItem(int itemId, int quantity) {
-            return new BankSlot(Type.DUPLICATE_ITEM, itemId, null, quantity);
-        }
-
-        public static BankSlot duplicateItem(Item item) {
-            return duplicateItem(item, item.placeholder ? 0 : 1);
-        }
-
-        public static BankSlot duplicateItem(Item item, int quantity) {
-            return new BankSlot(Type.DUPLICATE_ITEM, item.id, null, quantity);
-        }
-
-        public static BankSlot layoutPlaceholder(int itemId) {
-            return new BankSlot(Type.LAYOUT_PLACEHOLDER, itemId, null, -1);
-        }
-
-        public static BankSlot layoutPlaceholder(Item item) {
-            return new BankSlot(Type.LAYOUT_PLACEHOLDER, item.id, null, -1);
-        }
-
-        @Override
-        public boolean equals(Object o)
-        {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            BankSlot bankSlot = (BankSlot) o;
-//            System.out.println(id + " " + bankSlot.id + " " + quantity + " " + bankSlot.quantity + " " + type + " " + bankSlot.type + " " );
-            return id == bankSlot.id && quantity == bankSlot.quantity && type == bankSlot.type;
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hash(type, widget, id, quantity);
-        }
-
-        @Override
-        public String toString()
-        {
-            Item item = itemsById.get(id);
-//            System.out.println("tostring: " + id + " " + item + " " + type);
-            String typeString = type == Type.LAYOUT_PLACEHOLDER ? " lph" : type == Type.REAL_ITEM ? "" : " dup";
-            return "{" +
-                    item.name + typeString +
-                    (type == Type.REAL_ITEM ? " (" + quantity + ")" : "") +
-                    '}';
-        }
+	private BankTagLayoutsPlugin.BankItemAndWidget createBankItemWidget(Item item)
+    {
+        return new BankTagLayoutsPlugin.BankItemAndWidget(new BankItem(item.id), tempName(item.id, item.placeholder ? 0 : 1));
     }
 
-    private Widget createBankItemWidget(Item item)
+	private BankTagLayoutsPlugin.BankItemAndWidget createBankItemWidgetUnstackableDuplicate(Item item, int n)
+	{
+		return new BankTagLayoutsPlugin.BankItemAndWidget(new BankItem(item.id, n), tempName(item.id, item.placeholder ? 0 : 1));
+	}
+
+	private BankTagLayoutsPlugin.BankItemAndWidget createBankItemWidgetWithQuantity(Item item, int quantity)
     {
-        return createBankItemWidget(item, item.placeholder ? 0 : 1);
+		return new BankTagLayoutsPlugin.BankItemAndWidget(new BankItem(item.id), tempName(item.id, quantity));
     }
 
-    private Widget createBankItemWidget(Item item, int quantity)
+	private Widget tempName(int itemId, int quantity)
+	{
+		Widget widget = Mockito.mock(Widget.class);
+//		Mockito.when(widget.getItemId()).thenReturn(itemId);
+		Mockito.when(widget.getItemQuantity()).thenReturn(quantity);
+		return widget;
+	}
+
+	private LaidOutBank layOutBank(Layout layout, List<BankItemAndWidget> bankItems)
     {
-        Widget widget = Mockito.mock(Widget.class);
-        Mockito.when(widget.getItemId()).thenReturn(item.id);
-        Mockito.when(widget.getItemQuantity()).thenReturn(quantity);
-        return widget;
-    }
-
-    private LaidOutBank layOutBank(Layout layout, List<Widget> bankItems)
-    {
-        Map<Integer, BankSlot> laidOutBank = new HashMap<>();
-
-        Map<Integer, Widget> indexToWidget = plugin.assignItemPositions(layout, bankItems);
-
-        for (Map.Entry<Integer, Widget> entry : indexToWidget.entrySet())
-        {
-            assertFalse(laidOutBank.containsKey(entry.getKey()));
-            laidOutBank.put(entry.getKey(), BankSlot.realItem(entry.getValue()));
-        }
-
-        Set<BankTagLayoutsPlugin.FakeItem> fakeItems = plugin.calculateFakeItems(layout, indexToWidget);
-
-        for (BankTagLayoutsPlugin.FakeItem fakeItem : fakeItems)
-        {
-            assertFalse(laidOutBank.containsKey(fakeItem.getIndex()));
-            laidOutBank.put(
-                    fakeItem.getIndex(),
-                    fakeItem.layoutPlaceholder ?
-                            BankSlot.layoutPlaceholder(fakeItem.getItemId()) :
-                            BankSlot.duplicateItem(fakeItem.getItemId(), fakeItem.getQuantity())
-            );
-        }
-
-        return new LaidOutBank(laidOutBank);
+        return new LaidOutBank(plugin.generateBankSlots(layout, bankItems, false));
     }
 
     private static class Item {
@@ -777,40 +797,46 @@ public class BankLayoutTest
         }
     }
 
-    private static class LayoutItem {
-        final Item item;
-        final int index;
-
-        public LayoutItem(Item item, int index) {
-            this.item = item;
-            this.index = index;
-        }
-    }
-
-    private Layout generateLayout(LayoutItem... layoutItems) {
+	private Layout generateLayout(Object... objects) {
         Layout layout = new Layout();
-        for (LayoutItem layoutItem : layoutItems)
-        {
-            layout.putItem(layoutItem.item.id, layoutItem.index);
-        }
+		for (int i = 0; i < objects.length; i += 2)
+		{
+			if (objects[i] instanceof BankItem)
+			{
+				layout.putItem((Integer) objects[i + 1], (BankItem) objects[i]);
+			} else {
+				layout.putItem((Integer) objects[i + 1], new BankItem(((Item) objects[i]).id));
+			}
+		}
         return layout;
     }
 
-    private void checkCurrentLayout(int index, Item item)
+	private void checkCurrentLayout(int index, BankItem bankItem)
+	{
+		checkLayout(currentLayout, index, bankItem);
+	}
+
+	private void checkCurrentLayout(int index, Item item)
     {
         checkLayout(currentLayout, index, item);
     }
 
+	private void checkLayout(Layout layout, int index, BankItem bankItem)
+	{
+//		checkLayout(layout, index, bankItem.getItemId());
+		assertEquals(bankItem, layout.getItemAtIndex(index));
+	}
+
 	private void checkLayout(Layout layout, int index, Item item)
 	{
-		checkLayout(layout, index, item.id);
+		checkLayout(layout, index, new BankItem(item.id));
 	}
 
-	private void checkLayout(Layout layout, int index, int itemId)
-	{
-		assertEquals(itemId, layout.getItemAtIndex(index));
-	}
-
+//	private void checkLayout(Layout layout, int index, int itemId)
+//	{
+//		assertEquals(itemId, layout.getItemAtIndex(index));
+//	}
+//
 	private static class LaidOutBank {
         final Map<Integer, BankSlot> map;
 
@@ -853,6 +879,10 @@ public class BankLayoutTest
     private ItemComposition generateItemComposition(int itemId)
     {
         Item item = itemsById.get(itemId);
+        if (itemId == -1) {
+        	new Exception().printStackTrace(System.out);
+		}
+        System.out.println("item for " + itemId + " is " + item);
         ItemComposition mock = Mockito.mock(ItemComposition.class);
         Mockito.when(mock.getName()).thenReturn(item.name);
         Mockito.when(mock.getPlaceholderTemplateId()).thenReturn(item.placeholder ? 14401 : -1);
@@ -932,12 +962,12 @@ public class BankLayoutTest
 	public void testLayoutGeneratorDoesntDeleteDuplicateItems() {
 		LayoutGenerator layoutGenerator = new LayoutGenerator(plugin);
 		Layout initialLayout = generateLayout(
-			new LayoutItem(MAGIC_LOGS, 0),
-			new LayoutItem(MAGIC_LOGS, 8),
-			new LayoutItem(MAGIC_LOGS, 1),
+			MAGIC_LOGS, 0,
+			MAGIC_LOGS, 8,
+			MAGIC_LOGS, 1,
 
-			new LayoutItem(MAGIC_LOGS, 9),
-			new LayoutItem(MAGIC_LOGS, 2)
+			MAGIC_LOGS, 9,
+			MAGIC_LOGS, 2
 		);
 		Layout layout = layoutGenerator.basicLayout(Collections.emptyList(), Arrays.asList(
 			MAGIC_LOGS.id,
@@ -956,8 +986,8 @@ public class BankLayoutTest
 	public void testLayoutGeneratorWorksWithVariantItems() {
 		LayoutGenerator layoutGenerator = new LayoutGenerator(plugin);
 		Layout initialLayout = generateLayout(
-			new LayoutItem(GAMES_NECKLACE_8, 0),
-			new LayoutItem(GAMES_NECKLACE_7, 8)
+			GAMES_NECKLACE_8, 0,
+			GAMES_NECKLACE_7, 8
 		);
 		Layout layout = layoutGenerator.basicLayout(Collections.emptyList(), Arrays.asList(
 			GAMES_NECKLACE_8.id,
@@ -967,5 +997,257 @@ public class BankLayoutTest
 		checkLayout(layout, 8, GAMES_NECKLACE_6);
 		System.out.println("layout: " + layout);
 		assertEquals(2, layout.allPairs().size());
+	}
+
+	@Test
+	public void testUnstackableItemsInitialLayoutGeneration() {
+		currentLayout = generateLayout(
+		);
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			MAGIC_LOGS,
+			MAGIC_LOGS
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			0, realItem(MAGIC_LOGS),
+			1, realItem(new BankItem(MAGIC_LOGS.id, 1))
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableItemsPlaceholder() {
+		currentLayout = generateLayout(
+			MAGIC_LOGS, 1,
+			MAGIC_LOGS_PH, 2
+		);
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			MAGIC_LOGS,
+			MAGIC_LOGS
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			1, realItem(MAGIC_LOGS),
+			2, realItem(new BankItem(MAGIC_LOGS.id, 1))
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableItemsPlaceholder2() {
+		currentLayout = generateLayout(
+			MAGIC_LOGS_PH, 1,
+			MAGIC_LOGS, 2
+		);
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			MAGIC_LOGS,
+			MAGIC_LOGS
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			1, realItem(new BankItem(MAGIC_LOGS.id, 1)),
+			2, realItem(MAGIC_LOGS)
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableVariantItemsPlaceholder() {
+		currentLayout = generateLayout(
+			SERP_HELM, 1,
+			SERP_HELM_PH, 2
+		);
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			SERP_HELM,
+			SERP_HELM
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			1, realItem(SERP_HELM),
+			2, realItem(new BankItem(SERP_HELM.id, 1))
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableVariantItemsPlaceholder2() {
+		currentLayout = generateLayout(
+			SERP_HELM_PH, 1,
+			SERP_HELM, 2
+		);
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			SERP_HELM,
+			SERP_HELM
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			1, realItem(new BankItem(SERP_HELM.id, 1)),
+			2, realItem(SERP_HELM)
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableIntoDuplicatePlaceholders() {
+		currentLayout = generateLayout(
+			MAGIC_LOGS_PH, 1,
+			MAGIC_LOGS_PH, 2
+		);
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			MAGIC_LOGS,
+			MAGIC_LOGS
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			0, realItem(new BankItem(MAGIC_LOGS.id, 1)),
+			1, realItem(new BankItem(MAGIC_LOGS.id, 0)),
+			2, duplicateItem(new BankItem(MAGIC_LOGS.id, 0))
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableItemsVariant() {
+		currentLayout = generateLayout(
+			SERP_HELM, 1,
+			new BankItem(SERP_HELM.id, 1), 2,
+			MAGMA_SERP_HELM, 3,
+			new BankItem(MAGMA_SERP_HELM.id, 1), 4
+		);
+		// TODO what if it's one serp one magma (check both orderings).
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			SERP_HELM,
+			SERP_HELM_PH,
+			MAGMA_SERP_HELM,
+			MAGMA_SERP_HELM
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			1, realItem(SERP_HELM),
+			2, realItem(SERP_HELM_PH),
+			3, realItem(MAGMA_SERP_HELM),
+			4, realItem(new BankItem(MAGMA_SERP_HELM.id, 1))
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableItemsPlaceholderVariant() {
+		currentLayout = generateLayout(
+			SERP_HELM, 1,
+			SERP_HELM_PH, 2
+		);
+		// TODO what if it's one serp one magma (check both orderings).
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			MAGMA_SERP_HELM,
+			MAGMA_SERP_HELM
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			1, realItem(MAGMA_SERP_HELM),
+			2, realItem(new BankItem(MAGMA_SERP_HELM.id, 1))
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableItemsPlaceholderVariant2() {
+		currentLayout = generateLayout(
+			SERP_HELM, 1,
+			SERP_HELM_PH, 2
+		);
+		// TODO what if it's one serp one magma (check both orderings).
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			SERP_HELM,
+			MAGMA_SERP_HELM
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			1, realItem(SERP_HELM),
+			2, realItem(MAGMA_SERP_HELM)
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableItemsPlaceholderVariant3() {
+		currentLayout = generateLayout(
+			SERP_HELM, 1,
+			SERP_HELM_PH, 2
+		);
+		// TODO what if it's one serp one magma (check both orderings).
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			MAGMA_SERP_HELM,
+			SERP_HELM
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			1, realItem(SERP_HELM),
+			2, realItem(MAGMA_SERP_HELM)
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	@Test
+	public void testUnstackableItemsPlaceholderVariant4() {
+		currentLayout = generateLayout(
+			SERP_HELM, 1,
+			SERP_HELM_PH, 2
+		);
+		// TODO what if it's one serp one magma (check both orderings).
+		List<BankItemAndWidget> bankItems = generateBankItems(
+			SERP_HELM,
+			SERP_HELM
+		);
+		LaidOutBank laidOutBank = layOutBank(currentLayout, bankItems);
+		LaidOutBank expectedLaidOutBank = createLaidOutBank(
+			1, realItem(SERP_HELM),
+			2, realItem(new BankItem(SERP_HELM.id, 1))
+		);
+		assertEquals(expectedLaidOutBank, laidOutBank);
+	}
+
+	private List<BankItemAndWidget> generateBankItems(Item... items)
+	{
+		List<BankItemAndWidget> bankItems = new ArrayList<>();
+		Map<Item, Integer> counts = new HashMap<>();
+		for (Item item : items)
+		{
+			int count = counts.getOrDefault(item, 0);
+			bankItems.add(createBankItemWidgetUnstackableDuplicate(item, count));
+			counts.put(item, ++count);
+		}
+		return bankItems;
+	}
+
+	private BankSlot realItem(Item item)
+	{
+		return realItem(new BankItem(item.id));
+	}
+
+	private BankSlot realItem(BankItem bankItem)
+	{
+		return BankSlot.realItem(new BankItemAndWidget(bankItem, null));
+	}
+
+	private BankSlot realItem(Item item, int quantity)
+	{
+		// we don't use the quantity field in the test.
+		return realItem(item);
+	}
+
+	private BankSlot duplicateItem(BankItem bankItem)
+	{
+		return BankSlot.duplicateItem(bankItem, isPlaceholder(bankItem.getItemId()) ? 0 : 1);
+	}
+
+	private BankSlot duplicateItem(Item item)
+	{
+		return duplicateItem(new BankItem(item.id));
+	}
+
+	private BankSlot layoutPlaceholder(Item item)
+	{
+		return BankSlot.layoutPlaceholder(new BankItem(item.id));
 	}
 }

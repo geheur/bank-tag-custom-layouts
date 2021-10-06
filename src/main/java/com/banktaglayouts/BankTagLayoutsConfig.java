@@ -3,6 +3,7 @@ package com.banktaglayouts;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.Keybind;
 
 @ConfigGroup("banktaglayouts")
 public interface BankTagLayoutsConfig extends Config {
@@ -104,5 +105,13 @@ public interface BankTagLayoutsConfig extends Config {
 		position = 10
 	)
 	default boolean preventVanillaPlaceholderMenuBug() { return true; }
+
+	@ConfigItem(
+		keyName = "showUnstackableItemIndexKeybind",
+		name = "Show Unstackable Item Order",
+		description = "For unstackable items, show which item it is in the regular bank's order when this key is held.",
+		position = 11
+	)
+	default Keybind showUnstackableItemIndex() { return Keybind.CTRL; }
 
 }

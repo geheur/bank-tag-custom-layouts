@@ -10,10 +10,11 @@ repositories {
 	mavenCentral()
 }
 
-def runeLiteVersion = '1.7.15'
+def runeLiteVersion = '1.7.24'
 
 dependencies {
-	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
+	implementation 'org.projectlombok:lombok:1.18.16'
+    compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
 
 	compileOnly 'org.projectlombok:lombok:1.18.4'
 	annotationProcessor 'org.projectlombok:lombok:1.18.4'
@@ -24,6 +25,7 @@ dependencies {
 	testCompile group: 'org.mockito', name: 'mockito-core', version: '3.8.0'
 	testCompile group: 'org.mockito', name: 'mockito-inline', version: '3.8.0'
 	testCompile group: 'com.google.inject.extensions', name: 'guice-testlib', version: '4.1.0'
+//    testCompile 'org.projectlombok:lombok:1.18.4'
 }
 
 group = 'com.banktaglayouts'

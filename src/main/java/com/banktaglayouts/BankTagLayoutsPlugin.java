@@ -1,17 +1,25 @@
 package com.banktaglayouts;
 
+import static com.banktaglayouts.BankTagLayoutsPlugin.BankSlot.Type.*;
+import com.banktaglayouts.Layout.BankItem;
 import com.banktaglayouts.invsetupsstuff.InventorySetup;
 import com.banktaglayouts.invsetupsstuff.InventorySetupsAdapter;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Functions;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.ObjectArrays;
 import com.google.common.util.concurrent.Runnables;
 import com.google.inject.Provides;
-import lombok.Data;
+import java.awt.event.KeyEvent;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import lombok.AccessLevel;
 import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -27,6 +35,7 @@ import net.runelite.api.MessageNode;
 import net.runelite.api.Point;
 import net.runelite.api.ScriptEvent;
 import net.runelite.api.ScriptID;
+import net.runelite.api.Varbits;
 import net.runelite.api.events.ClientTick;
 import net.runelite.api.events.CommandExecuted;
 import net.runelite.api.events.DraggingWidgetChanged;
@@ -50,6 +59,7 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemVariationMapping;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.game.chatbox.ChatboxPanelManager;
+import net.runelite.client.input.KeyListener;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.input.MouseListener;
 import net.runelite.client.input.MouseManager;
@@ -84,7 +94,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntPredicate;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -101,7 +110,7 @@ import static net.runelite.client.plugins.banktags.BankTagsPlugin.TAG_TABS_CONFI
 	tags = {"bank", "tag", "layout"}
 )
 @PluginDependency(BankTagsPlugin.class)
-public class BankTagLayoutsPlugin extends Plugin implements MouseListener
+public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyListener
 {
 	public static final IntPredicate FILTERED_CHARS = c -> "</>:".indexOf(c) == -1;
 
@@ -119,8 +128,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public static final String EXPORT_LAYOUT = "Export tag tab with layout";
 	public static final String REMOVE_FROM_LAYOUT_MENU_OPTION = "Remove-layout";
 	public static final String PREVIEW_AUTO_LAYOUT = "Preview auto layout";
-	public static final String DUPLICATE_ITEM = "Duplicate-item";
-	public static final String REMOVE_DUPLICATE_ITEM = "Remove-duplicate-item";
+	public static final String DUPLICATE_ITEM_MENU_ENTRY = "Duplicate-item";
+	public static final String REMOVE_DUPLICATE_ITEM_MENU_ENTRY = "Remove-duplicate-item";
+	public static final String REMOVE_FROM_TAG_MENU_OPTION = "Remove-tag";
 
 	public static final int BANK_ITEM_WIDTH = 36;
 	public static final int BANK_ITEM_HEIGHT = 32;
@@ -149,9 +159,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Inject
 	private ClientThread clientThread;
 
-	// This is package-private for use in FakeItemOverlay because if it's @Injected there it's a different TabInterface due to some bug I don't understand.
 	@Inject
-	TabInterface tabInterface;
+	private TabInterface tabInterface;
 
 	@Inject
 	private TagManager tagManager;
@@ -169,7 +178,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private BankTagLayoutsConfig config;
 
 	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
-	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
+	@Getter
+	private final Map<Integer, BankSlot> bankSlotContents = new HashMap<>();
 
 	private Widget showLayoutPreviewButton = null;
 	private Widget applyLayoutPreviewButton = null;
@@ -220,7 +230,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			cancelLayoutPreviewButton.setSpriteId(Sprites.CANCEL_PREVIEW.getSpriteId());
 			cancelLayoutPreviewButton.setNoClickThrough(true);
 
-			cancelLayoutPreviewButton.setOnOpListener((JavaScriptCallback) (e) -> cancelLayoutPreview());
+			cancelLayoutPreviewButton.setOnOpListener((JavaScriptCallback) (e) -> cancelLayoutPreview(true));
 			cancelLayoutPreviewButton.setHasListener(true);
 			cancelLayoutPreviewButton.revalidate();
 			cancelLayoutPreviewButton.setAction(0, "Cancel preview");
@@ -243,6 +253,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		spriteManager.addSpriteOverrides(Sprites.values());
 		mouseManager.registerMouseListener(this);
 		keyManager.registerKeyListener(antiDrag);
+		keyManager.registerKeyListener(this);
 
 		clientThread.invokeLater(() -> {
 			if (client.getGameState() == GameState.LOGGED_IN) {
@@ -260,11 +271,12 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		spriteManager.removeSpriteOverrides(Sprites.values());
 		mouseManager.unregisterMouseListener(this);
 		keyManager.unregisterKeyListener(antiDrag);
+		keyManager.unregisterKeyListener(this);
 
 		clientThread.invokeLater(() -> {
 			if (client.getGameState() == GameState.LOGGED_IN) {
-				indexToWidget.clear();
-				cancelLayoutPreview();
+				bankSlotContents.clear();
+				cancelLayoutPreview(false);
 				showLayoutPreviewButton.setHidden(true);
 
 				bankSearch.layoutBank();
@@ -330,13 +342,16 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if ("placeholder".equals(commandExecuted.getCommand())) {
 			String[] arguments = commandExecuted.getArguments();
 			int itemId = Integer.parseInt(arguments[0]);
-			client.addChatMessage(ChatMessageType.PUBLICCHAT, "" + itemId, itemName(itemId) + " is a " + isPlaceholder(itemId) + " and it's reversed id is " + switchPlaceholderId(itemId) + " and again " + switchPlaceholderId(switchPlaceholderId(itemId)), "bla");
+			client.addChatMessage(ChatMessageType.PUBLICCHAT, "" + itemId,
+				"\"" + itemName(itemId) + "\" is a " + (isPlaceholder(itemId) ? "ph" : "non-ph") +
+					", switched " + switchPlaceholderId(itemId) + " -> " + switchPlaceholderId(switchPlaceholderId(itemId)), "bla");
 		}
 	}
 
 	private void applyLayoutPreview() {
 	    if (previewLayoutable.isBankTab()) {
-			for (Integer itemId : previewLayout.getAllUsedItemIds()) {
+			for (BankItem bankItem : previewLayout.getAllUsedItemIds()) {
+				int itemId = bankItem.getItemId();
 				if (!copyPaste.findTag(itemId, previewLayoutable.name)) {
 					log.debug("adding item " + itemNameWithId(itemId) + " to tag");
 					tagManager.addTag(itemId, previewLayoutable.name, false);
@@ -346,7 +361,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		saveLayoutNonPreview(previewLayoutable, previewLayout);
 
-		cancelLayoutPreview();
+		cancelLayoutPreview(false);
 		bankSearch.layoutBank();
 	}
 
@@ -356,13 +371,13 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (showLayoutPreviewButton != null && config.showAutoLayoutButton() && getCurrentLayoutableThing() != null) showLayoutPreviewButton.setHidden(!hide);
 	}
 
-	private void cancelLayoutPreview() {
+	private void cancelLayoutPreview(boolean layoutBank) {
 		previewLayout = null;
 		previewLayoutable = null;
 
 		hideLayoutPreviewButtons(true);
 
-		applyCustomBankTagItemPositions();
+		if (layoutBank) applyCustomBankTagItemPositions();
 	}
 
 	/** null indicates that there should not be a preview shown. */
@@ -493,7 +508,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			updateInventorySetupShown();
 
 			if (getCurrentLayoutableThing() == null || getCurrentLayoutableThing() != lastLayoutable) {
-				cancelLayoutPreview();
+				cancelLayoutPreview(false);
 			}
 
 			applyCustomBankTagItemPositions();
@@ -592,8 +607,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	private void importLayout(String name, Layout layout, String tagString) {
-		boolean successful = importBankTag(name, tagString);
-		if (!successful) return;
+		importBankTag(name, tagString);
 
 		saveLayout(LayoutableThing.bankTag(name), layout);
 
@@ -633,8 +647,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private UsedToBeReflection copyPaste = new UsedToBeReflection(this);
 
-	// TODO what is the purpose of the return value.
-	private boolean importBankTag(String name, String tagString) {
+	private void importBankTag(String name, String tagString) {
 		log.debug("importing tag data. " + tagString);
 		final Iterator<String> dataIter = Text.fromCSV(tagString).iterator();
 		dataIter.next(); // skip name.
@@ -650,17 +663,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		copyPaste.saveNewTab(name);
 		copyPaste.loadTab(name);
-
-		return true;
-	}
-
-	public boolean hasLayoutEnabled(LayoutableThing layoutable) {
-		if (layoutable == null) return false;
-		if (isShowingPreview()) return true;
-
-		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
-		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
-		return configuration != null || (layoutable.isBankTab() && config.layoutEnabledByDefault()) || (layoutable.isInventorySetup() && config.useWithInventorySetups());
 	}
 
 	private void enableLayout(LayoutableThing layoutable) {
@@ -685,9 +687,75 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				.build();
 	}
 
-	private void applyCustomBankTagItemPositions() {
-        fakeItems.clear();
+	private boolean showUnstackableItemIndexes;
+	public boolean showUnstackableItemIndexes()
+	{
+		return showUnstackableItemIndexes;
+	}
 
+	@Override
+	public void keyTyped(KeyEvent e)
+	{
+	}
+
+	@Override
+	public void keyPressed(KeyEvent e)
+	{
+		if (config.showUnstackableItemIndex().matches(e)) {
+			showUnstackableItemIndexes = true;
+		}
+	}
+
+	@Override
+	public void keyReleased(KeyEvent e)
+	{
+		if (config.showUnstackableItemIndex().matches(e)) {
+			showUnstackableItemIndexes = false;
+		}
+	}
+
+	@Value
+	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+	@EqualsAndHashCode(exclude={"widget"})
+	static class BankSlot
+	{
+		enum Type {
+			LAYOUT_PLACEHOLDER,
+			DUPLICATE_ITEM,
+			REAL_ITEM,
+		}
+
+		Type type;
+		BankItem bankItem;
+
+		Widget widget;
+		/** only relevant to duplicate items. */
+		int quantity;
+
+		public static BankSlot realItem(BankItemAndWidget bankItemAndWidget)
+		{
+			return new BankSlot(REAL_ITEM, bankItemAndWidget.getBankItem(), bankItemAndWidget.getWidget(), -1);
+		}
+
+		public static BankSlot layoutPlaceholder(BankItem bankItem)
+		{
+			return new BankSlot(LAYOUT_PLACEHOLDER, bankItem, null, -1);
+		}
+
+		public static BankSlot duplicateItem(BankItem bankItem, int quantity)
+		{
+			return new BankSlot(DUPLICATE_ITEM, bankItem, null, quantity);
+		}
+	}
+
+	@Value
+	static class BankItemAndWidget
+	{
+		BankItem bankItem;
+		Widget widget;
+	}
+
+	private void applyCustomBankTagItemPositions() {
 		LayoutableThing layoutable = getCurrentLayoutableThing();
 		if (layoutable == null) {
 			return;
@@ -695,12 +763,22 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		log.debug("applyCustomBankTagItemPositions: " + layoutable);
 
-		indexToWidget.clear();
+		bankSlotContents.clear();
+
+		List<BankItemAndWidget> bankItems = getBankItems();
 
 		Layout layout = getBankOrder(layoutable);
 		if (layout == null) {
+			for (BankItemAndWidget bankItem : bankItems) {
+				bankItem.getWidget().setOnDragCompleteListener((JavaScriptCallback) (ev) -> {
+					boolean tutorialShown = tutorialMessage();
+
+					if (!tutorialShown) bankReorderWarning(ev);
+				});
+			}
 			return; // layout not enabled.
 		}
+
 		if (layout.allPairs().isEmpty() && layoutable.isInventorySetup()) {
 			// Inventory setups by default have an equipment and inventory order, so lay it out automatically if this
 			// is the first time viewing the setup with bank tag layouts.
@@ -708,78 +786,178 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			layout = layoutGenerator.basicInventorySetupsLayout(inventorySetup, Layout.emptyLayout(), getAutoLayoutDuplicateLimit());
 		}
 
-		List<Widget> bankItems = Arrays.stream(client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER).getDynamicChildren())
-				.filter(bankItem -> !bankItem.isHidden() && bankItem.getItemId() >= 0)
-				.collect(Collectors.toList());
-
-		if (!hasLayoutEnabled(layoutable)) {
-			for (Widget bankItem : bankItems) {
-				bankItem.setOnDragCompleteListener((JavaScriptCallback) (ev) -> {
-					boolean tutorialShown = tutorialMessage();
-
-					if (!tutorialShown) bankReorderWarning(ev);
-				});
-			}
-			return;
-		}
-
 		if (!isShowingPreview()) { // I don't want to clean layout items when displaying a preview. This could result in some layout placeholders being auto-removed due to not being in the tab.
 			cleanItemsNotInBankTag(layout, layoutable);
 		}
 
-		indexToWidget.putAll(assignItemPositions(layout, bankItems));
-		moveDuplicateItem();
-		updateFakeItems(layout);
+		bankSlotContents.putAll(generateBankSlots(layout, bankItems));
 
-		for (Widget bankItem : bankItems) {
-			bankItem.setOnDragCompleteListener((JavaScriptCallback) (ev) -> customBankTagOrderInsert(layoutable, ev.getSource()));
+		for (BankItemAndWidget bankItem : bankItems) {
+			bankItem.getWidget().setOnDragCompleteListener((JavaScriptCallback) (ev) -> customBankTagOrderInsert(layoutable, ev.getSource()));
 		}
 
-		setItemPositions(indexToWidget);
+		setItemPositions(bankSlotContents);
 		setContainerHeight(layoutable, layout);
 		saveLayout(layoutable, layout);
 		log.debug("saved tag " + layoutable);
 	}
 
 	/**
-	 * Generates a map of widgets to the bank indexes where they should show up in the laid-out tag. Does not update fake items.
+	 * Returns the items in the order that they appear in visually (i.e. infinity tab, tab 1, tab 2, ... tab 9) instead
+	 * of the order of the items in the bank item container (tab 1, tab 2, ... tab 9, infinity tab).
 	 */
-	Map<Integer, Widget> assignItemPositions(Layout layout, List<Widget> bankItems)
+	private List<BankItemAndWidget> getBankItems()
 	{
-		Map<Integer, Widget> indexToWidget = new HashMap<>();
-		assignVariantItemPositions(layout, bankItems, indexToWidget);
-		// TODO check if the existance of this method is just a performance boost.
-		assignNonVariantItemPositions(layout, bankItems, indexToWidget);
-		return indexToWidget;
+		List<BankItemAndWidget> bankItems = new ArrayList<>();
+		Map<Integer, Integer> idToQuantity = new HashMap<>();
+		int defaultTabStart = 0;
+		for (int i = Varbits.BANK_TAB_ONE_COUNT.getId(); i <= Varbits.BANK_TAB_NINE_COUNT.getId(); i++)
+		{
+			defaultTabStart += client.getVarbitValue(i);
+		}
+		Consumer<Widget> loopContents = widget -> {
+			int itemId = widget.getItemId();
+			if (widget.isHidden() || itemId < 0) return;
+
+			Integer seen = idToQuantity.getOrDefault(itemId, 0);
+
+			bankItems.add(new BankItemAndWidget(new BankItem(itemId, seen), widget));
+
+			idToQuantity.put(itemId, ++seen);
+		};
+		Widget[] children = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER).getDynamicChildren();
+		for (int i = defaultTabStart; i < 816; i++)
+		{
+			loopContents.accept(children[i]);
+		}
+		for (int i = 0; i < defaultTabStart; i++)
+		{
+			loopContents.accept(children[i]);
+		}
+		return bankItems;
 	}
 
-	private void updateFakeItems(Layout layout)
+	Map<Integer, BankSlot> generateBankSlots(Layout layout, List<BankItemAndWidget> bankItems)
 	{
-	    fakeItems = calculateFakeItems(layout, indexToWidget);
+		return generateBankSlots(layout, bankItems, true);
 	}
 
-	// TODO this is n^2. There are multiple places I think where I do such an operation, so doing something about this would be nice.
-	Set<FakeItem> calculateFakeItems(Layout layout, Map<Integer, Widget> indexToWidget)
+	// for testing.
+	Map<Integer, BankSlot> generateBankSlots(Layout layout, List<BankItemAndWidget> bankItems, boolean moveDuplicateItem)
 	{
-		Set<FakeItem> fakeItems = new HashSet<>();
-		for (Map.Entry<Integer, Integer> entry : layout.allPairs()) {
+		Map<Integer, BankSlot> bankSlots = new HashMap<>();
+		assignItemIndexes(layout, bankItems, bankSlots);
+		if (moveDuplicateItem) moveDuplicateItem(bankSlots);
+		updateFakeItems(layout, bankSlots, false);
+		return bankSlots;
+	}
+
+	private void assignItemIndexes(Layout layout, List<BankItemAndWidget> bankItems, Map<Integer, BankSlot> bankSlots) {
+		Multimap<Integer, BankItemAndWidget> variantItemsInBank = groupByVariantId(bankItems, BankItemAndWidget::getBankItem, Functions.identity());
+		Multimap<Integer, BankItem> variantItemsInLayout = groupByVariantId(layout.allPairs(), Map.Entry::getValue, Map.Entry::getValue);
+
+		for (Integer variationBaseId : variantItemsInBank.keySet()) {
+			List<BankItemAndWidget> notYetPositionedWidgets = new ArrayList<>(variantItemsInBank.get(variationBaseId));
+			Set<BankItem> layoutItems = new HashSet<>(variantItemsInLayout.get(variationBaseId));
+
+			// first, figure out if there is a perfect match.
+			assignitemstrashname(bankSlots, notYetPositionedWidgets, layoutItems, bankItem ->
+				layoutItems.contains(bankItem) ? layout.getIndexForItem(bankItem) : -1,
+			"pass 1 (exact itemid match)");
+
+			// check matches of placeholders or placeholders matching items.
+			assignitemstrashname(bankSlots, notYetPositionedWidgets, layoutItems, bankItem -> {
+				int itemId = bankItem.switchPlaceholderId(this);
+				return layoutItems.contains(itemId) ? layout.getIndexForItemId(itemId) : -1;
+			}, "pass 2 (placeholder match)");
+
+			// match any variant item.
+			assignitemstrashname(bankSlots, notYetPositionedWidgets, layoutItems, bankItem -> {
+				for (BankItem item : layoutItems) {
+					int index = layout.getIndexForItem(item);
+					if (!bankSlots.containsKey(index)) {
+						return index;
+					}
+				}
+				return -1;
+			}, "pass 3 (variant item match)");
+
+			if (!notYetPositionedWidgets.isEmpty()) {
+				for (BankItemAndWidget notYetPositionedWidget : notYetPositionedWidgets) {
+					BankItem bankItem = notYetPositionedWidget.getBankItem();
+					int layoutIndex = layout.getIndexForItem(bankItem);
+					if (layoutIndex != -1) continue;
+					int index = layout.getFirstEmptyIndex();
+					layout.putItem(index, bankItem);
+					log.debug("item " + itemNameWithId(bankItem) + " assigned on pass 4 (assign to empty spot) to index " + index);
+					bankSlots.put(index, BankSlot.realItem(notYetPositionedWidget));
+				}
+			}
+		}
+	}
+
+	private <T, U> Multimap<Integer, U> groupByVariantId(Collection<T> ts, Function<T, BankItem> toBankItem, Function<T, U> mapTo)
+	{
+		// key is the variant base id; the list contains the item widgets that go in this variant base id;
+		Multimap<Integer, U> byVariantId = LinkedListMultimap.create();
+		for (T t : ts) {
+			int nonPlaceholderId = getNonPlaceholderId(toBankItem.apply(t));
+			int variationBaseId = ItemVariationMapping.map(nonPlaceholderId);
+			byVariantId.put(variationBaseId, mapTo.apply(t));
+		}
+		return byVariantId;
+	}
+
+	@FunctionalInterface
+	private interface functionalinterfacetrashname {
+		int getIndex(BankItem bankItem);
+	}
+
+	private void assignitemstrashname(Map<Integer, BankSlot> bankSlots, List<BankItemAndWidget> notYetPositionedWidgets, Collection<BankItem> layoutItems, functionalinterfacetrashname getIndex, String debugDescription)
+	{
+		Iterator<BankItemAndWidget> iter = notYetPositionedWidgets.iterator();
+		while (iter.hasNext()) {
+			BankItemAndWidget item = iter.next();
+
+			int index = getIndex.getIndex(item.getBankItem());
+
+			if (index != -1) {
+				log.debug("item " + itemNameWithId(item.getBankItem()) + " assigned on " + debugDescription + " to index " + index);
+				bankSlots.put(index, BankSlot.realItem(item));
+				layoutItems.remove(item.getBankItem());
+				iter.remove();
+			}
+		}
+	}
+
+	private void updateFakeItems(Layout layout, Map<Integer, BankSlot> bankSlotContents, boolean removeExistingFakeItems)
+	{
+		if (removeExistingFakeItems) {
+			bankSlotContents.entrySet().removeIf(entry -> entry.getValue().getType() != REAL_ITEM);
+		}
+
+		// TODO this is n^2. There are multiple places I think where I do such an operation, so doing something about this would be nice.
+		for (Map.Entry<Integer, BankItem> entry : layout.allPairs()) {
 			Integer index = entry.getKey();
-			if (indexToWidget.containsKey(index)) continue;
+			BankItem bankItem = entry.getValue();
+			if (bankSlotContents.containsKey(index))
+			{
+				continue;
+			}
 
-			int itemId = entry.getValue();
-			Optional<Widget> any = layout.allPairs().stream()
-					.filter(e -> e.getValue() == itemId)
-					.map(e -> indexToWidget.get(e.getKey()))
-					.filter(widget -> widget != null)
+			Optional<BankSlot> any = layout.allPairs().stream()
+					.filter(e -> e.getValue().equals(bankItem))
+					.map(e -> bankSlotContents.get(e.getKey()))
+					.filter(bankSlot -> bankSlot != null && bankSlot.getType() == REAL_ITEM)
 					.findAny();
 
-			boolean isLayoutPlaceholder = !any.isPresent();
-			int quantity = any.isPresent() ? any.get().getItemQuantity() : -1;
-			int fakeItemItemId = any.isPresent() ? any.get().getItemId() : itemId;
-//			fakeItems.add(new FakeItem(index, getNonPlaceholderId(fakeItemItemId), isLayoutPlaceholder, quantity));
-			fakeItems.add(new FakeItem(index, fakeItemItemId, isLayoutPlaceholder, quantity));
+			bankSlotContents.put(
+				index,
+				any.isPresent() ?
+					BankSlot.duplicateItem(any.get().getBankItem(), any.get().getWidget().getItemQuantity()) :
+					BankSlot.layoutPlaceholder(bankItem)
+			);
 		}
-		return fakeItems;
 	}
 
 	LayoutableThing getCurrentLayoutableThing() {
@@ -826,39 +1004,12 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return false;
 	}
 
-	private void assignNonVariantItemPositions(Layout layout, List<Widget> bankItems, Map<Integer, Widget> indexToWidget) {
-		for (Widget bankItem : bankItems) {
-			int itemId = bankItem.getItemId();
-
-			int nonPlaceholderId = getNonPlaceholderId(itemId);
-
-			if (!itemShouldBeTreatedAsHavingVariants(nonPlaceholderId)) {
-//				log.debug("\tassigning position for " + itemName(itemId) + itemId + ": ");
-
-				Integer indexForItem = layout.getIndexForItem(itemId);
-				if (indexForItem == -1) {
-					// swap the item with its placeholder (or vice versa) and try again.
-					int otherItemId = switchPlaceholderId(itemId);
-					indexForItem = layout.getIndexForItem(otherItemId);
-				}
-
-				if (indexForItem == -1) {
-				    // The item is not in the layout.
-					indexForItem = layout.getFirstEmptyIndex();
-					layout.putItem(itemId, indexForItem);
-				}
-				indexToWidget.put(indexForItem, bankItem);
-			}
-		}
-	}
-
-	public Set<FakeItem> fakeItems = new HashSet<>();
-
 	@Override
 	public MouseEvent mouseClicked(MouseEvent mouseEvent) {
 		return mouseEvent;
 	}
 
+	private volatile boolean mouseIsPressed = false;
 	public volatile int draggedItemIndex = -1; // Used for fake items only, not real items.
 	public int dragStartX = 0;
 	public int dragStartY = 0;
@@ -867,38 +1018,40 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Override
 	public MouseEvent mousePressed(MouseEvent mouseEvent) {
 		mouseIsPressed = true;
-	    if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(getCurrentLayoutableThing()) || !config.showLayoutPlaceholders() || client.isMenuOpen()) return mouseEvent;
+
+	    if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(getCurrentLayoutableThing()) || client.isMenuOpen()) return mouseEvent;
 		int index = getIndexForMousePosition(true);
-		FakeItem fakeItem = fakeItems.stream().filter(fake -> fake.index == index).findAny().orElse(null);
-		if (fakeItem != null) {
-			draggedItemIndex = fakeItem.index;
-			dragStartX = mouseEvent.getX();
-			dragStartY = mouseEvent.getY();
-			dragStartScroll = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER).getScrollY();
-			antiDrag.startDrag();
-			mouseEvent.consume();
-		}
+		BankSlot bankSlot = bankSlotContents.get(index);
+		if (bankSlot == null || (bankSlot.getType() == LAYOUT_PLACEHOLDER && !config.showLayoutPlaceholders())) return mouseEvent;
+
+		draggedItemIndex = index;
+		dragStartX = mouseEvent.getX();
+		dragStartY = mouseEvent.getY();
+		dragStartScroll = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER).getScrollY();
+		antiDrag.startDrag();
+		if (bankSlot.getType() != BankSlot.Type.REAL_ITEM) mouseEvent.consume();
+
 		return mouseEvent;
 	}
 
 	@Override
 	public MouseEvent mouseReleased(MouseEvent mouseEvent) {
 		mouseIsPressed = false;
-		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(getCurrentLayoutableThing())) return mouseEvent;
-		if (draggedItemIndex == -1) return mouseEvent;
 
-		if (config.showLayoutPlaceholders()) {
-			int draggedOnIndex = getIndexForMousePositionNoLowerLimit();
-			clientThread.invokeLater(() -> {
-				if (draggedOnIndex != -1 && antiDrag.mayDrag()) {
-					customBankTagOrderInsert(getCurrentLayoutableThing(), draggedItemIndex, draggedOnIndex);
-				}
-				antiDrag.endDrag();
-				draggedItemIndex = -1;
-			});
-		}
+		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || draggedItemIndex == -1 || !hasLayoutEnabled(getCurrentLayoutableThing())) return mouseEvent;
 
-		mouseEvent.consume();
+		boolean holdingFakeItem = bankSlotContents.get(draggedItemIndex).getType() == LAYOUT_PLACEHOLDER;
+
+		int draggedOnIndex = getIndexForMousePositionNoLowerLimit();
+		clientThread.invokeLater(() -> {
+			if (holdingFakeItem && draggedOnIndex != -1 && antiDrag.mayDrag()) {
+				customBankTagOrderInsert(getCurrentLayoutableThing(), draggedItemIndex, draggedOnIndex);
+			}
+			antiDrag.endDrag();
+			draggedItemIndex = -1;
+		});
+
+		if (holdingFakeItem) mouseEvent.consume();
 		return mouseEvent;
 	}
 
@@ -922,14 +1075,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return mouseEvent;
 	}
 
-	@Data
-	public static class FakeItem {
-	    public final int index;
-		public final int itemId;
-		public final boolean layoutPlaceholder;
-		public final int quantity;
-	}
-
 	/**
      * Used to run code in onMenuEntryAdded only once per client tick. Client tick events occur after MenuEntryAdded,
 	 * so this flag is set in MenuEntryAdded and reset in ClientTick.
@@ -944,18 +1089,17 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			// If you move the items when you're dragging an item over its duplicates, undesirable behavior occurs.
 			if (!mouseIsPressed)
 			{
-				boolean movedItemWidget = moveDuplicateItem();
+				boolean movedItemWidget = moveDuplicateItem(bankSlotContents);
 				if (movedItemWidget)
 				{
-					updateFakeItems(getBankOrder(getCurrentLayoutableThing()));
-					setItemPositions(indexToWidget);
+					updateFakeItems(getBankOrder(getCurrentLayoutableThing()), bankSlotContents, true);
+					setItemPositions(bankSlotContents);
 				}
 			}
 		}
 
 		addBankTagTabMenuEntries(menuEntryAdded);
-		addFakeItemMenuEntries(menuEntryAdded);
-	    addDuplicateItemMenuEntries(menuEntryAdded);
+		addBankItemMenuEntries(menuEntryAdded);
 	}
 
 	private void addBankTagTabMenuEntries(MenuEntryAdded menuEntryAdded)
@@ -966,27 +1110,46 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			if ("Rename tag tab".equals(menuEntryAdded.getOption())) {
 				LayoutableThing layoutable = LayoutableThing.bankTag(bankTagName);
 				if (hasLayoutEnabled(layoutable)) {
-					addEntry(bankTagName, EXPORT_LAYOUT);
+					addEntry(EXPORT_LAYOUT, bankTagName);
 				}
 
-				addEntry(bankTagName, hasLayoutEnabled(layoutable) ? DISABLE_LAYOUT : ENABLE_LAYOUT);
+				addEntry(hasLayoutEnabled(layoutable) ? DISABLE_LAYOUT : ENABLE_LAYOUT, bankTagName);
 			} else if ("New tag tab".equals(menuEntryAdded.getOption())) {
 				if (!config.showAutoLayoutButton()) {
-					addEntry(bankTagName, PREVIEW_AUTO_LAYOUT);
+					addEntry(PREVIEW_AUTO_LAYOUT, bankTagName);
 				}
-				addEntry(bankTagName, IMPORT_LAYOUT);
+				addEntry(IMPORT_LAYOUT, bankTagName);
 			}
 		}
 	}
 
-	private volatile boolean mouseIsPressed = false;
+	private void addBankItemMenuEntries(MenuEntryAdded menuEntryAdded)
+	{
+		if (!hasLayoutEnabled(getCurrentLayoutableThing())) return;
+		int index = getIndexForMousePosition(true);
+		if (index == -1) return;
+		BankSlot bankSlot = bankSlotContents.get(index);
+		if (bankSlot == null) return;
+		if (!config.showLayoutPlaceholders() && bankSlot.getType() == LAYOUT_PLACEHOLDER) return;
+
+		if (menuEntryAdded.getOption().equalsIgnoreCase("cancel") && bankSlot.getType() == LAYOUT_PLACEHOLDER) {
+			addFakeItemMenuEntries(bankSlot, index);
+		}
+
+		if (
+			(!config.shiftModifierForExtraBankItemOptions() || client.isKeyPressed(KeyCode.KC_SHIFT)) &&
+			(bankSlot.getType() != REAL_ITEM || menuEntryAdded.getOption().equals("Examine"))
+		) {
+			addDuplicateItemMenuEntries(bankSlot, index);
+		}
+	}
 
 	/**
 	 * Makes sure there is a real item under the mouse cursor if the mouse is over or near a duplicated item.
 	 * @return true if an item widget was moved, false otherwise. If true, fake items should be updated and
 	 * setItemPositions should be called, since this method does not do that.
 	 */
-	private boolean moveDuplicateItem()
+	private boolean moveDuplicateItem(Map<Integer, BankSlot> bankSlotContents)
 	{
 		if (getCurrentLayoutableThing() == null)
 		{
@@ -996,18 +1159,18 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		int mousePositionIndex = getIndexForMousePosition();
 		Layout layout = getBankOrder(getCurrentLayoutableThing());
 		if (layout == null) return false;
-		int itemId = layout.getItemAtIndex(mousePositionIndex);
+		BankItem bankItem = layout.getItemAtIndex(mousePositionIndex);
 
-		if (itemId == -1)
+		if (bankItem == null)
 		{
 			return false;
 		}
 
 		int count = 0;
 		List<Integer> indexes = new ArrayList<>();
-		for (Map.Entry<Integer, Integer> entry : layout.allPairs())
+		for (Map.Entry<Integer, BankItem> entry : layout.allPairs())
 		{
-			if (entry.getValue() == itemId) {
+			if (entry.getValue().equals(bankItem)) {
 				count++;
 				indexes.add(entry.getKey());
 			}
@@ -1015,10 +1178,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (count > 1) {
 			for (Integer index : indexes)
 			{
-				if (indexToWidget.containsKey(index) && index != mousePositionIndex) {
-					Widget widget = indexToWidget.get(index);
-					indexToWidget.remove(index);
-					indexToWidget.put(mousePositionIndex, widget);
+				if (bankSlotContents.containsKey(index) && index != mousePositionIndex) {
+					BankSlot bankSlot = bankSlotContents.get(index);
+					if (bankSlot.getType() != REAL_ITEM) continue;
+					bankSlotContents.remove(index);
+					bankSlotContents.put(mousePositionIndex, bankSlot);
 					return true;
 				}
 			}
@@ -1026,92 +1190,66 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return false;
 	}
 
-	private void addDuplicateItemMenuEntries(MenuEntryAdded menuEntryAdded)
+	private void addDuplicateItemMenuEntries(BankSlot bankSlot, int index)
 	{
-		if (config.shiftModifierForExtraBankItemOptions() && !client.isKeyPressed(KeyCode.KC_SHIFT)) return;
+		String menuTarget = ColorUtil.wrapWithColorTag(itemName(bankSlot.getBankItem()), itemTooltipColor);
 
-		LayoutableThing layoutable = getCurrentLayoutableThing();
-		if (layoutable == null) return;
-		Layout layout = getBankOrder(layoutable);
-		if (layout == null) return;
-
-		int index = getIndexForMousePosition(true);
-		if (index == -1) return;
-		int itemIdAtIndex = layout.getItemAtIndex(index);
-
-		if (itemIdAtIndex == -1) return;
-
-		boolean isRealItem = indexToWidget.containsKey(index);
-		if (!menuEntryAdded.getOption().equals("Examine") && isRealItem) return;
-
-		boolean isLayoutPlaceholder = fakeItems.stream()
-			.filter(fakeItem -> fakeItem.getIndex() == index && fakeItem.isLayoutPlaceholder()).findAny().isPresent();
-
-		MenuEntry newEntry;
-
-		int itemCount = layout.countItemsWithId(itemIdAtIndex);
-		if (itemCount > 1 && !isLayoutPlaceholder) {
-			newEntry = new MenuEntry();
-			newEntry.setOption(REMOVE_DUPLICATE_ITEM);
-			newEntry.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor));
-			newEntry.setType(MenuAction.RUNELITE_OVERLAY.getId());
-			newEntry.setParam0(index);
-			insertMenuEntry(newEntry, client.getMenuEntries(), false);
+		Layout layout = getBankOrder(getCurrentLayoutableThing());
+		int itemCount = layout.countItems(layout.getItemAtIndex(index));
+		if (itemCount > 1 && bankSlot.getType() != LAYOUT_PLACEHOLDER) { // layout placeholders already have "remove-layout", which does more or less the same thing.
+			addEntry(
+				REMOVE_DUPLICATE_ITEM_MENU_ENTRY,
+				menuTarget,
+				MenuAction.RUNELITE_OVERLAY,
+				index,
+				false
+			);
 		}
 
-		newEntry = new MenuEntry();
-		newEntry.setOption(DUPLICATE_ITEM);
-		newEntry.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor));
-		newEntry.setType(MenuAction.RUNELITE_OVERLAY.getId());
-		newEntry.setParam0(index);
-		insertMenuEntry(newEntry, client.getMenuEntries(), false);
-
-		if (!isRealItem) return; // layout placeholders already have "remove-layout" menu option which does the same thing as remove-duplicate-item.
+		addEntry(
+			DUPLICATE_ITEM_MENU_ENTRY,
+			menuTarget,
+			MenuAction.RUNELITE_OVERLAY,
+			index,
+			false
+		);
 	}
 
-	private void addEntry(String menuTarget, String menuOption) {
+	private void addEntry(String menuOption, String menuTarget)
+	{
+		addEntry(menuOption, menuTarget, MenuAction.RUNELITE, -1, true);
+	}
+
+	private void addEntry(String menuOption, String menuTarget, MenuAction menuAction, int param0, boolean after) {
 		MenuEntry newEntry;
 		newEntry = new MenuEntry();
 		newEntry.setOption(menuOption);
 		newEntry.setTarget(ColorUtil.wrapWithColorTag(menuTarget, itemTooltipColor));
-		newEntry.setType(MenuAction.RUNELITE.getId());
-		insertMenuEntry(newEntry, client.getMenuEntries(), true);
+		newEntry.setType(menuAction.getId());
+		newEntry.setParam0(param0);
+		insertMenuEntry(newEntry, client.getMenuEntries(), after);
 	}
 
-	private void addFakeItemMenuEntries(MenuEntryAdded menuEntryAdded) {
-		if (!menuEntryAdded.getOption().equalsIgnoreCase("cancel")) return;
+	private void addFakeItemMenuEntries(BankSlot bankSlot, int index) {
+		addEntry(
+			REMOVE_FROM_TAG_MENU_OPTION + " (" + tabInterface.getActiveTab().getTag() + ")",
+			ColorUtil.wrapWithColorTag(itemName(bankSlot.getBankItem()), itemTooltipColor),
+			MenuAction.RUNELITE_OVERLAY,
+			index,
+			false
+		);
 
-		LayoutableThing currentLayoutableThing = getCurrentLayoutableThing();
-		if (!config.showLayoutPlaceholders() || !hasLayoutEnabled(currentLayoutableThing)) {
-			return;
-		}
-		Layout layout = getBankOrder(currentLayoutableThing);
-
-		int index = getIndexForMousePosition(true);
-		if (index == -1) return;
-		int itemIdAtIndex = layout.getItemAtIndex(index);
-
-		if (itemIdAtIndex != -1 && !indexToWidget.containsKey(index)) {
-			MenuEntry newEntry;
-//			newEntry = new MenuEntry();
-//			newEntry.setOption(REMOVE_FROM_TAG_MENU_OPTION + " (" + tabInterface.getActiveTab().getTag() + ")");
-//			newEntry.setType(MenuAction.CC_OP_LOW_PRIORITY.getId());
-//			newEntry.setTarget(ColorUtil.wrapWithColorTag(itemName(entry.getKey()), itemTooltipColor));
-//			newEntry.setType(MenuAction.RUNELITE.getId());
-//			newEntry.setParam0(entry.getKey());
-//			insertMenuEntry(newEntry, client.getMenuEntries(), true);
-
-			newEntry = new MenuEntry();
-			newEntry.setOption(REMOVE_FROM_LAYOUT_MENU_OPTION);
-			boolean preventPlaceholderMenuBug =
-				config.preventVanillaPlaceholderMenuBug() &&
-				client.getDraggedWidget() != null
-			;
-			newEntry.setType((preventPlaceholderMenuBug ? MenuAction.CC_OP : MenuAction.RUNELITE_OVERLAY).getId());
-			newEntry.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor));
-			newEntry.setParam0(index);
-			insertMenuEntry(newEntry, client.getMenuEntries(), false);
-		}
+		boolean preventPlaceholderMenuBug =
+			config.preventVanillaPlaceholderMenuBug() &&
+			client.getDraggedWidget() != null
+		;
+		addEntry(
+			REMOVE_FROM_LAYOUT_MENU_OPTION,
+			ColorUtil.wrapWithColorTag(itemName(bankSlot.getBankItem()), itemTooltipColor),
+			(preventPlaceholderMenuBug ? MenuAction.CC_OP : MenuAction.RUNELITE_OVERLAY),
+			index,
+			false
+		);
 	}
 
 	/**
@@ -1193,7 +1331,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (
 			config.preventVanillaPlaceholderMenuBug() &&
 			!client.isMenuOpen() &&
-			WidgetInfo.TO_GROUP(event.getWidgetId()) == WidgetID.BANK_GROUP_ID &&
+			WidgetInfo.TO_GROUP(event.getParam1()) == WidgetID.BANK_GROUP_ID &&
 			event.getMenuOption().equals("Release")
 		) {
 			event.setConsumed(true);
@@ -1221,14 +1359,22 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			importLayout();
 		} else if (PREVIEW_AUTO_LAYOUT.equals(menuOption)) {
 			showLayoutPreview();
-		} else if (DUPLICATE_ITEM.equals(menuOption)) {
-		    duplicateItem(event.getActionParam());
-		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
-			removeFromLayout(event.getActionParam());
+		} else if (DUPLICATE_ITEM_MENU_ENTRY.equals(menuOption)) {
+		    duplicateItem(event.getParam0());
+		} else if (REMOVE_DUPLICATE_ITEM_MENU_ENTRY.equals(menuOption)) {
+			removeFromLayout(event.getParam0());
+		} else if (menuOption.startsWith(REMOVE_FROM_TAG_MENU_OPTION)) {
+			removeFromTag(event.getParam0());
 		} else {
 			consume = false;
 		}
 		if (consume) event.consume();
+	}
+
+	private void removeFromTag(int index)
+	{
+		tagManager.removeTag(getBankItemForIndexInLaidOutBank(index).getItemId(), tabInterface.getActiveTab().getTag());
+		bankSearch.layoutBank();
 	}
 
 	private void removeFromLayout(int index)
@@ -1247,7 +1393,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		LayoutableThing layoutable = getCurrentLayoutableThing();
 		Layout layout = getBankOrder(layoutable);
 
-		layout.duplicateItem(clickedItemIndex, getIdForIndexInRealBank(clickedItemIndex));
+		layout.duplicateItem(clickedItemIndex, getBankItemForIndexInLaidOutBank(clickedItemIndex));
 		saveLayout(layoutable, layout);
 
 		applyCustomBankTagItemPositions();
@@ -1255,109 +1401,23 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	// TODO consider using tagManager.getItemsForTag(bankTagName) because unlike findTag it is api.
 	private void cleanItemsNotInBankTag(Layout layout, LayoutableThing layoutable) {
-		Predicate<Integer> containsId;
+		Predicate<BankItem> containsItem;
 		if (layoutable.isBankTab()) {
-			containsId = id -> copyPaste.findTag(id, layoutable.name);
+			containsItem = item -> copyPaste.findTag(item.getItemId(), layoutable.name);
 		}
 		else
 		{
 			InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(layoutable.name);
-			containsId = id -> inventorySetupsAdapter.setupContainsItem(inventorySetup, id);
+			containsItem = item -> inventorySetupsAdapter.setupContainsItem(inventorySetup, item.getItemId());
 		}
 
-		Iterator<Map.Entry<Integer, Integer>> iter = layout.allPairsIterator();
+		Iterator<Map.Entry<Integer, BankItem>> iter = layout.allPairsIterator();
 		while (iter.hasNext()) {
-			int itemId = iter.next().getValue();
+			BankItem bankItem = iter.next().getValue();
 
-			if (!containsId.test(itemId))
+			if (!containsItem.test(bankItem))
 			{
-				log.debug("removing " + itemNameWithId(itemId) + " because it is no longer in the thing");
-				iter.remove();
-			}
-		}
-	}
-
-	// TODO this logic needs looking at re: barrows items.
-	private void assignVariantItemPositions(Layout layout, List<Widget> bankItems, Map<Integer, Widget> indexToWidget) {
-	    // Remove duplicate item id widgets.
-		Set<Object> seen = ConcurrentHashMap.newKeySet();
-		bankItems = new ArrayList<>(bankItems.stream().filter(widget -> seen.add(widget.getItemId())).collect(Collectors.toList()));
-
-		Multimap<Integer, Widget> variantItemsInBank = LinkedListMultimap.create(); // key is the variant base id; the list contains the item widgets that go in this variant base id;
-		for (Widget bankItem : bankItems) {
-			int nonPlaceholderId = getNonPlaceholderId(bankItem.getItemId());
-			if (itemShouldBeTreatedAsHavingVariants(nonPlaceholderId)) {
-				int variationBaseId = ItemVariationMapping.map(nonPlaceholderId);
-				variantItemsInBank.put(variationBaseId, bankItem);
-			}
-		}
-
-		Multimap<Integer, Integer> variantItemsInLayout = LinkedListMultimap.create(); // key is the variant base id; the list contains the item ids;
-		for (Map.Entry<Integer, Integer> pair : layout.allPairs()) {
-			int nonPlaceholderId = getNonPlaceholderId(pair.getValue());
-			if (itemShouldBeTreatedAsHavingVariants(nonPlaceholderId)) {
-				int variationBaseId = ItemVariationMapping.map(nonPlaceholderId);
-				variantItemsInLayout.put(variationBaseId, pair.getValue());
-			}
-		}
-
-		for (Integer variationBaseId : variantItemsInBank.keySet()) {
-			List<Widget> notYetPositionedWidgets = new ArrayList<>(variantItemsInBank.get(variationBaseId));
-
-			// first, figure out if there is a perfect match.
-			assignitemstrashname(indexToWidget, variantItemsInLayout, variationBaseId, notYetPositionedWidgets, (itemIdsInLayoutForVariant, itemId) -> itemIdsInLayoutForVariant.contains(itemId) ? layout.getIndexForItem(itemId) : -1, "pass 1 (exact itemid match)");
-
-			// check matches of placeholders or placeholders matching items.
-			assignitemstrashname(indexToWidget, variantItemsInLayout, variationBaseId, notYetPositionedWidgets, (itemIdsInLayoutForVariant, itemId) -> {
-				itemId = switchPlaceholderId(itemId);
-				return itemIdsInLayoutForVariant.contains(itemId) ? layout.getIndexForItem(itemId) : -1;
-			}, "pass 2 (placeholder match)");
-
-			// match any variant item.
-			assignitemstrashname(indexToWidget, variantItemsInLayout, variationBaseId, notYetPositionedWidgets, (itemIdsInLayoutForVariant, itemId) -> {
-				for (Integer id : itemIdsInLayoutForVariant) {
-					int index = layout.getIndexForItem(id);
-					if (!indexToWidget.containsKey(index)) {
-					    return index;
-					}
-				}
-				return -1;
-			}, "pass 3 (variant item match)");
-
-			if (!notYetPositionedWidgets.isEmpty()) {
-				for (Widget notYetPositionedWidget : notYetPositionedWidgets) {
-					int itemId = notYetPositionedWidget.getItemId();
-					int layoutIndex = layout.getIndexForItem(itemId);
-					if (layoutIndex != -1) continue; // Prevents an issue where items with the same id that take up multiple bank slots, e.g. items that have their charges stored on the item, can be added into two slots during this stage.
-					int index = layout.getFirstEmptyIndex();
-					layout.putItem(itemId, index);
-					log.debug("item " + itemNameWithId(itemId) + " assigned on pass 4 (assign to empty spot) to index " + index);
-					indexToWidget.put(index, notYetPositionedWidget);
-				}
-			}
-		}
-	}
-
-	@FunctionalInterface
-	private interface functionalinterfacetrashname {
-		int getIndex(Collection<Integer> itemIds, int itemId);
-	}
-
-	private void assignitemstrashname(Map<Integer, Widget> indexToWidget, Multimap<Integer, Integer> variantItemsInLayout, Integer variationBaseId, List<Widget> notYetPositionedWidgets, functionalinterfacetrashname getIndex, String debugDescription)
-	{
-		Iterator<Widget> iter = notYetPositionedWidgets.iterator();
-		while (iter.hasNext()) {
-			Widget widget = iter.next();
-			int itemId = widget.getItemId();
-
-			Collection<Integer> itemIds = variantItemsInLayout.get(variationBaseId);
-			if (itemIds == null) continue; // this could happen because I removed all the widgets at this key.
-
-			int index = getIndex.getIndex(itemIds, itemId);
-
-			if (index != -1 && !indexToWidget.containsKey(index)) {
-				log.debug("item " + itemNameWithId(itemId) + " assigned on " + debugDescription + " to index " + index);
-				indexToWidget.put(index, widget);
+				log.debug("removing " + itemNameWithId(bankItem) + " because it is no longer in the thing");
 				iter.remove();
 			}
 		}
@@ -1391,11 +1451,29 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	 * unlike getBankOrder, this will not return a preview layout when one is currently being show.
 	 */
 	private Layout getBankOrderNonPreview(LayoutableThing layoutable) {
+		String layoutString = getLayoutConfigStringToUse(layoutable);
+		if (layoutString == null) return null;
+		return Layout.fromString(layoutString, true);
+	}
+
+	public boolean hasLayoutEnabled(LayoutableThing layoutable) {
+		if (layoutable == null) return false;
+		if (isShowingPreview()) return true;
+
+		return getLayoutConfigStringToUse(layoutable) != null;
+	}
+
+	/**
+	 * returning null indicates that there should not be a layout for this layoutable thing.
+	 */
+	private String getLayoutConfigStringToUse(LayoutableThing layoutable) {
 		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
 		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return null;
-		if (configuration == null && (layoutable.isBankTab() && !config.layoutEnabledByDefault() || layoutable.isInventorySetup() && !config.useWithInventorySetups())) return null;
-		if (configuration == null) configuration = "";
-		return Layout.fromString(configuration, true);
+		if (configuration != null) return configuration;
+		if (layoutable.isBankTab() && !config.layoutEnabledByDefault() || layoutable.isInventorySetup() && !config.useWithInventorySetups()) {
+			return null;
+		}
+		return "";
 	}
 
 	private void exportLayout(String tagName) {
@@ -1449,14 +1527,14 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return (index / 8) * BANK_ITEM_WIDTH;
 	}
 
-	private void setItemPositions(Map<Integer, Widget> indexToWidget) {
+	private void setItemPositions(Map<Integer, BankSlot> bankSlots) {
 		Widget container = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER);
-		// Hide all widgets not in indexToWidget.
+		// Hide all widgets not in bankSlots.
 		outer_loop:
 		for (Widget child : container.getDynamicChildren()) {
 		    if (child.isHidden()) continue;
-			for (Map.Entry<Integer, Widget> integerWidgetEntry : indexToWidget.entrySet()) {
-				if (integerWidgetEntry.getValue().equals(child)) {
+			for (Map.Entry<Integer, BankSlot> entry : bankSlots.entrySet()) {
+				if (child.equals(entry.getValue().getWidget())) {
 					continue outer_loop;
 				}
 			}
@@ -1465,8 +1543,12 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			child.revalidate();
 		}
 
-		for (Map.Entry<Integer, Widget> entry : indexToWidget.entrySet()) {
-			Widget widget = entry.getValue();
+		for (Map.Entry<Integer, BankSlot> entry : bankSlots.entrySet()) {
+			if (entry.getValue().getType() != BankSlot.Type.REAL_ITEM) {
+				continue;
+			}
+
+			Widget widget = entry.getValue().getWidget();
 			int index = entry.getKey();
 
 			widget.setOriginalX(getXForIndex(index));
@@ -1475,12 +1557,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 	}
 
-	@RequiredArgsConstructor
-    @EqualsAndHashCode
+	@Value
 	static final class LayoutableThing {
-		public final String name;
+		String name;
 		/** false means it's an inventory setup. */
-		public final boolean isBankTab;
+		boolean isBankTab;
 
 		public static LayoutableThing bankTag(String tagName) {
 			return new LayoutableThing(tagName, true);
@@ -1531,8 +1612,19 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 						itemContainerScroll));
 	}
 
+	public String itemName(BankItem bankItem) {
+		return itemName(bankItem.getItemId());
+	}
+
 	public String itemName(Integer itemId) {
-		return (itemId == null) ? "null" : itemManager.getItemComposition(itemId).getName();
+		return
+			(itemId == null) ? "null" :
+			(itemId < 0) ? "invalid (" + itemId + ")" :
+			itemManager.getItemComposition(itemId).getName();
+	}
+
+	public String itemNameWithId(BankItem bankItem) {
+		return itemNameWithId(bankItem.getItemId());
 	}
 
 	public String itemNameWithId(Integer itemId) {
@@ -1542,6 +1634,14 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private int getPlaceholderId(int id) {
 		ItemComposition itemComposition = itemManager.getItemComposition(id);
 		return (itemComposition.getPlaceholderTemplateId() == 14401) ? id : itemComposition.getPlaceholderId();
+	}
+
+	int getNonPlaceholderId(BankItemAndWidget bankItemAndWidget) {
+		return getNonPlaceholderId(bankItemAndWidget.getBankItem());
+	}
+
+	int getNonPlaceholderId(BankItem bankItem) {
+		return getNonPlaceholderId(bankItem.getItemId());
 	}
 
 	int getNonPlaceholderId(int id) {
@@ -1563,36 +1663,32 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		int draggedOnItemIndex = getIndexForMousePositionNoLowerLimit();
 		if (draggedOnItemIndex == -1) return;
 
-		int draggedItemIndex = -1;
-		for (Map.Entry<Integer, Widget> entry : indexToWidget.entrySet()) {
-			if (entry.getValue().equals(draggedItem)) {
-				draggedItemIndex = entry.getKey();
+		for (Map.Entry<Integer, BankSlot> entry : bankSlotContents.entrySet()) {
+			if (draggedItem.equals(entry.getValue().getWidget())) {
+				customBankTagOrderInsert(layoutable, entry.getKey(), draggedOnItemIndex);
+				return;
 			}
 		}
-
-		customBankTagOrderInsert(layoutable, draggedItemIndex, draggedOnItemIndex);
 	}
 
 	private void customBankTagOrderInsert(LayoutableThing layoutable, int draggedItemIndex, int draggedOnItemIndex) {
 		Layout layout = getBankOrder(layoutable);
 		if (layout == null) return;
 
-		// Currently I'm just spilling the variant items out in bank order, so I don't care exactly what item id was there - although if I ever decide to change this, this section will become much more complicated, since if I drag a (2) charge onto a regular item, but there was supposed to be a (3) charge there then I have to move the (2) but also deal with where the (2)'s saved position is... At least that's how it'll go if I decide to handle jewellery that way.
+		BankItem currentDraggedItem = getBankItemForIndexInLaidOutBank(draggedItemIndex);
 
-		Integer currentDraggedItemId = getIdForIndexInRealBank(draggedItemIndex);
-
-		layout.moveItem(draggedItemIndex, draggedOnItemIndex, currentDraggedItemId);
+		layout.moveItem(draggedItemIndex, draggedOnItemIndex, currentDraggedItem);
 
 		saveLayout(layoutable, layout);
 
 		applyCustomBankTagItemPositions();
 	}
 
-	private Integer getIdForIndexInRealBank(int index) {
-		if (index == -1) return -1;
-		Widget widget = indexToWidget.get(index);
-		if (widget == null) return -1;
-		return widget.getItemId();
+	private BankItem getBankItemForIndexInLaidOutBank(int index) {
+		if (index == -1) return null;
+		BankSlot bankSlot = bankSlotContents.get(index);
+		if (bankSlot == null) return null;
+		return bankSlot.getBankItem();
 	}
 
 	// Disable reordering your real bank while any tag tab is active, as if the Bank Tags Plugin's "Prevent tag tab item dragging" was enabled.
@@ -1615,7 +1711,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Subscribe
 	public void onFocusChanged(FocusChanged focusChanged)
 	{
-	    antiDrag.focusChanged(focusChanged);
+		antiDrag.endDrag();
+		draggedItemIndex = -1;
+		antiDrag.focusChanged(focusChanged);
 	}
 
 	@Subscribe

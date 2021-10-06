@@ -1,5 +1,6 @@
 package com.banktaglayouts;
 
+import com.banktaglayouts.Layout.BankItem;
 import com.banktaglayouts.invsetupsstuff.InventorySetup;
 import java.util.AbstractMap;
 import lombok.RequiredArgsConstructor;
@@ -61,13 +62,13 @@ public class LayoutGenerator {
         int displacedItemsStart = i;
 
         // copy items from current layout into the empty spots.
-        for (Map.Entry<Integer, Integer> itemPosition : currentLayout.allPairs()) {
+        for (Map.Entry<Integer, BankItem> itemPosition : currentLayout.allPairs()) {
             int index = itemPosition.getKey();
-            int currentItemAtIndex = itemPosition.getValue();
-            int previewItemAtIndex = previewLayout.getItemAtIndex(index);
+            BankItem currentItemAtIndex = itemPosition.getValue();
+            BankItem previewItemAtIndex = previewLayout.getItemAtIndex(index);
 
-            if (currentItemAtIndex != -1 && previewItemAtIndex == -1) {
-                previewLayout.putItem(currentItemAtIndex, index);
+            if (currentItemAtIndex != null && previewItemAtIndex == null) {
+                previewLayout.putItem(index, currentItemAtIndex);
             }
         }
 
@@ -76,11 +77,11 @@ public class LayoutGenerator {
 
         int j = displacedItemsStart;
         while (displacedItems.size() > 0 && j < 2000 / 38 * 8) {
-            int currentItemAtIndex = currentLayout.getItemAtIndex(j);
-            if (currentItemAtIndex == -1) {
+            BankItem currentItemAtIndex = currentLayout.getItemAtIndex(j);
+            if (currentItemAtIndex == null) {
                 Integer itemId = displacedItems.remove(0);
                 log.debug(itemId + " goes to " + j);
-                previewLayout.putItem(itemId, j);
+                previewLayout.putItem(j, new BankItem(itemId));
             }
 
             j++;
@@ -118,9 +119,9 @@ public class LayoutGenerator {
         for (Integer itemId : inventory) {
             if (itemId == -1) continue;
             int index = useZigZag ? toZigZagIndex(i, 0, 0) : i;
-            previewLayout.putItem(itemId, index);
-            int currentLayoutItem = currentLayout.getItemAtIndex(index);
-            if (currentLayoutItem != -1) displacedItems.add(currentLayoutItem);
+            previewLayout.putItem(index, new BankItem(itemId));
+            BankItem currentLayoutItem = currentLayout.getItemAtIndex(index);
+            if (currentLayoutItem != null) displacedItems.add(currentLayoutItem.getItemId());
             i++;
         }
         if (!inventory.isEmpty()) {
@@ -148,7 +149,7 @@ public class LayoutGenerator {
 
     private boolean layoutContainsItem(int id, Layout previewLayout) {
 		int baseId = ItemVariationMapping.map(plugin.getNonPlaceholderId(id));
-        for (Integer item : previewLayout.getAllUsedItemIds()) {
+        for (BankItem item : previewLayout.getAllUsedItemIds()) {
             if (baseId == ItemVariationMapping.map(plugin.getNonPlaceholderId(item))) {
                 return true;
             }
