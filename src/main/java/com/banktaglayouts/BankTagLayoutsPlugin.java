@@ -50,6 +50,7 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemVariationMapping;
 import net.runelite.client.game.SpriteManager;
+import net.runelite.client.game.chatbox.ChatboxItemSearch;
 import net.runelite.client.game.chatbox.ChatboxPanelManager;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.input.MouseListener;
@@ -122,6 +123,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public static final String PREVIEW_AUTO_LAYOUT = "Preview auto layout";
 	public static final String DUPLICATE_ITEM = "Duplicate-item";
 	public static final String REMOVE_DUPLICATE_ITEM = "Remove-duplicate-item";
+	public static final String ADD_ITEM = "Add item to layout";
 
 	public static final int BANK_ITEM_WIDTH = 36;
 	public static final int BANK_ITEM_HEIGHT = 32;
@@ -162,6 +164,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	@Inject
 	private BankSearch bankSearch;
+
+	@Inject
+	private ChatboxItemSearch itemSearch;
 
 	@Inject
 	private ChatboxPanelManager chatboxPanelManager;
@@ -971,6 +976,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				LayoutableThing layoutable = LayoutableThing.bankTag(bankTagName);
 				if (hasLayoutEnabled(layoutable)) {
 					addEntry(bankTagName, EXPORT_LAYOUT);
+					addEntry(bankTagName, ADD_ITEM);
 				}
 
 				addEntry(bankTagName, hasLayoutEnabled(layoutable) ? DISABLE_LAYOUT : ENABLE_LAYOUT);
@@ -1229,10 +1235,35 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		    duplicateItem(event.getActionParam());
 		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
 			removeFromLayout(event.getActionParam());
-		} else {
+		} else if (ADD_ITEM.equals((menuOption))) {
+			addToLayout(menuTarget);
+		} else
+		{
 			consume = false;
 		}
 		if (consume) event.consume();
+	}
+
+	private void addToLayout(String tag)
+	{
+		itemSearch
+			.tooltipText("Set slot to")
+			.onItemSelected((itemId) ->
+			{
+				clientThread.invokeLater(() ->
+				{
+					int finalId = itemManager.canonicalize(itemId);
+
+					tagManager.addTag(finalId,tag,true);
+					LayoutableThing layoutable = getCurrentLayoutableThing();
+					Layout layout = getBankOrder(layoutable);
+					layout.putItem(finalId, layout.getFirstEmptyIndex());
+					saveLayout(layoutable, layout);
+
+					applyCustomBankTagItemPositions();
+				});
+			})
+			.build();
 	}
 
 	private void removeFromLayout(int index)
