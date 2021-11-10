@@ -1247,7 +1247,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private void addToLayout(String tag)
 	{
 		itemSearch
-			.tooltipText("Set slot to")
+			.tooltipText("Add to layout")
 			.onItemSelected((itemId) ->
 			{
 				clientThread.invokeLater(() ->
