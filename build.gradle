@@ -4,13 +4,16 @@ plugins {
 
 repositories {
 	mavenLocal()
+    flatDir {
+        dirs 'C:\\Users\\Janos\\Source\\runelite\\wynadorn\\runelite-client\\target'
+    }
 	maven {
 		url = 'https://repo.runelite.net'
 	}
 	mavenCentral()
 }
 
-def runeLiteVersion = '1.8.1'
+def runeLiteVersion = '1.8.3-SNAPSHOT'
 
 dependencies {
 	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
