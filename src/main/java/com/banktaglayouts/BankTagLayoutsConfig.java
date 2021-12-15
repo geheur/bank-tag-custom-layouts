@@ -1,8 +1,11 @@
 package com.banktaglayouts;
 
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.Keybind;
 
 @ConfigGroup("banktaglayouts")
 public interface BankTagLayoutsConfig extends Config {
@@ -105,4 +108,14 @@ public interface BankTagLayoutsConfig extends Config {
 	)
 	default boolean preventVanillaPlaceholderMenuBug() { return true; }
 
+	@ConfigItem(
+		keyName = "addKeybind",
+		name = "Add item keybind",
+		description = "Keyboard shortcut for adding a placeholder",
+		position = 11
+	)
+	default Keybind addKeybind()
+	{
+		return Keybind.NOT_SET;
+	}
 }

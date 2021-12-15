@@ -10,6 +10,8 @@ import com.google.common.collect.ObjectArrays;
 import com.google.common.util.concurrent.Runnables;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.RequiredArgsConstructor;
@@ -46,11 +48,13 @@ import net.runelite.api.widgets.WidgetPositionMode;
 import net.runelite.api.widgets.WidgetType;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.Keybind;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemVariationMapping;
 import net.runelite.client.game.SpriteManager;
+import net.runelite.client.game.chatbox.ChatboxItemSearch;
 import net.runelite.client.game.chatbox.ChatboxPanelManager;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.input.MouseListener;
@@ -123,6 +127,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public static final String PREVIEW_AUTO_LAYOUT = "Preview auto layout";
 	public static final String DUPLICATE_ITEM = "Duplicate-item";
 	public static final String REMOVE_DUPLICATE_ITEM = "Remove-duplicate-item";
+	public static final String ADD_ITEM = "Add item to layout";
 
 	public static final int BANK_ITEM_WIDTH = 36;
 	public static final int BANK_ITEM_HEIGHT = 32;
@@ -163,6 +168,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	@Inject
 	private BankSearch bankSearch;
+
+	@Inject
+	private ChatboxItemSearch itemSearch;
 
 	@Inject
 	private ChatboxPanelManager chatboxPanelManager;
@@ -251,6 +259,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		spriteManager.addSpriteOverrides(Sprites.values());
 		mouseManager.registerMouseListener(this);
 		keyManager.registerKeyListener(antiDrag);
+		keyManager.registerKeyListener(addItemHotkeyListener);
 
 		clientThread.invokeLater(() -> {
 			if (client.getGameState() == GameState.LOGGED_IN) {
@@ -268,6 +277,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		spriteManager.removeSpriteOverrides(Sprites.values());
 		mouseManager.unregisterMouseListener(this);
 		keyManager.unregisterKeyListener(antiDrag);
+		keyManager.unregisterKeyListener(addItemHotkeyListener);
 
 		clientThread.invokeLater(() -> {
 			if (client.getGameState() == GameState.LOGGED_IN) {
@@ -1005,6 +1015,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				LayoutableThing layoutable = LayoutableThing.bankTag(bankTagName);
 				if (hasLayoutEnabled(layoutable)) {
 					addEntry(bankTagName, EXPORT_LAYOUT);
+					addEntry(bankTagName, ADD_ITEM);
 				}
 
 				addEntry(bankTagName, hasLayoutEnabled(layoutable) ? DISABLE_LAYOUT : ENABLE_LAYOUT);
@@ -1234,10 +1245,35 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		    duplicateItem(event.getActionParam());
 		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
 			removeFromLayout(event.getActionParam());
-		} else {
+		} else if (ADD_ITEM.equals((menuOption))) {
+			addToLayout(menuTarget);
+		} else
+		{
 			consume = false;
 		}
 		if (consume) event.consume();
+	}
+
+	private void addToLayout(String tag)
+	{
+		itemSearch
+			.tooltipText("Add to layout")
+			.onItemSelected((itemId) ->
+			{
+				clientThread.invokeLater(() ->
+				{
+					int finalId = itemManager.canonicalize(itemId);
+
+					tagManager.addTag(finalId,tag,true);
+					LayoutableThing layoutable = getCurrentLayoutableThing();
+					Layout layout = getBankOrder(layoutable);
+					layout.putItem(finalId, layout.getFirstEmptyIndex());
+					saveLayout(layoutable, layout);
+
+					applyCustomBankTagItemPositions();
+				});
+			})
+			.build();
 	}
 
 	private void removeFromLayout(int index)
@@ -1642,5 +1678,51 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				return;
 			}
 		}
+	}
+
+	private final net.runelite.client.input.KeyListener addItemHotkeyListener = new net.runelite.client.input.KeyListener()
+	{
+		@Override
+		public void keyTyped(KeyEvent e)
+		{
+		}
+
+		@Override
+		public void keyPressed(KeyEvent e)
+		{
+			Keybind keybind = config.addKeybind();
+			if (keybind.matches(e))
+			{
+				//if the bank is not open
+				Widget bankContainer = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER);
+				if (bankContainer == null || bankContainer.isSelfHidden())
+				{
+					//do nothing
+					return;
+				}
+
+				//If the current tab is either a regular tab or an inventory setup
+				if(!tabInterface.isActive() || isInventorySetup())
+				{
+					//do nothing
+					return;
+				}
+
+				//show the add item dialog
+				log.debug("Add layout item hotkey pressed");
+				addToLayout( tabInterface.getActiveTab().getTag());
+				e.consume();
+			}
+		}
+
+		@Override
+		public void keyReleased(KeyEvent e)
+		{
+		}
+	};
+
+	private boolean isInventorySetup()
+	{
+		return config.useWithInventorySetups() && inventorySetup != null;
 	}
 }
