@@ -4,7 +4,6 @@ import com.banktaglayouts.invsetupsstuff.InventorySetup;
 
 import java.util.*;
 
-import com.banktaglayouts.invsetupsstuff.InventorySetupsItem;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -53,11 +52,22 @@ public class LayoutGenerator {
         previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.WEAPON.getSlotIdx()), 16);
         previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.BODY.getSlotIdx()), 17);
         previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.SHIELD.getSlotIdx()), 18);
-        previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.AMMO.getSlotIdx()), 10);
-        previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.LEGS.getSlotIdx()), 25);
-        previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.GLOVES.getSlotIdx()), 32);
-        previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.BOOTS.getSlotIdx()), 33);
-        previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.RING.getSlotIdx()), 34);
+
+        if (fromInventorySetup) {
+            previewLayout.putItem(equippedItems.get(10), 10);
+            previewLayout.putItem(equippedItems.get(6), 25);
+            previewLayout.putItem(equippedItems.get(7), 32);
+            previewLayout.putItem(equippedItems.get(8), 33);
+            previewLayout.putItem(equippedItems.get(9), 34);
+        } else {
+            previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.AMMO.getSlotIdx()), 10);
+            previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.LEGS.getSlotIdx()), 25);
+            previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.GLOVES.getSlotIdx()), 32);
+            previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.BOOTS.getSlotIdx()), 33);
+            previewLayout.putItem(equippedItems.get(EquipmentInventorySlot.RING.getSlotIdx()), 34);
+        }
+
+
 
         int invRow = 0;
         int invCol = 4;
@@ -160,14 +170,11 @@ public class LayoutGenerator {
 
         // lay out equipped items.
         equippedItems = equippedItems.stream()
-                .filter(integer -> integer != -1)
                 .map(itemId -> plugin.itemManager.canonicalize(itemId)) // Weight reducing items have different ids when equipped; this fixes that.
                 .collect(Collectors.toList());
         i = layoutItems(equippedItems, currentLayout, previewLayout, displacedItems, i, true);
 
         inventory = inventory.stream().filter(integer -> integer != -1).collect(Collectors.toList());
-        additionalItems = additionalItems.stream().filter(integer -> integer != -1).collect(Collectors.toList());
-        runePouch = runePouch.stream().filter(integer -> integer != -1).collect(Collectors.toList());
 
         // lay out the inventory items.
         if (duplicateLimit <= 0)
@@ -289,10 +296,10 @@ public class LayoutGenerator {
     // TODO opening inventory setups panel closes auto-layout preview.
 
     public Layout basicInventorySetupsLayout(InventorySetup inventorySetup, Layout currentLayout, int duplicateLimit, BankTagLayoutsConfig.LayoutStyles layoutStyle) {
-        List<Integer> equippedGear = inventorySetup.getEquipment() == null ? Collections.emptyList() : inventorySetup.getEquipment().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
-        List<Integer> inventory = inventorySetup.getInventory() == null ? Collections.emptyList() : inventorySetup.getInventory().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
-        List<Integer> runePouchRunes = inventorySetup.getRune_pouch() == null ? Collections.emptyList() : inventorySetup.getRune_pouch().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
-        List<Integer> additionalItems = inventorySetup.getAdditionalFilteredItems() == null ? Collections.emptyList() : inventorySetup.getAdditionalFilteredItems().values().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
+        List<Integer> equippedGear = inventorySetup.getEquipment() == null ? Collections.emptyList() : inventorySetup.getEquipment().stream().map(isi -> isi.getId()).filter(id -> id != -1).collect(Collectors.toList());
+        List<Integer> inventory = inventorySetup.getInventory() == null ? Collections.emptyList() : inventorySetup.getInventory().stream().map(isi -> isi.getId()).filter(id -> id != -1).collect(Collectors.toList());
+        List<Integer> runePouchRunes = inventorySetup.getRune_pouch() == null ? Collections.emptyList() : inventorySetup.getRune_pouch().stream().map(isi -> isi.getId()).filter(id -> id != -1).collect(Collectors.toList());
+        List<Integer> additionalItems = inventorySetup.getAdditionalFilteredItems() == null ? Collections.emptyList() : inventorySetup.getAdditionalFilteredItems().entrySet().stream().map(isi -> isi.getValue().getId()).filter(id -> id != -1).collect(Collectors.toList());
 
         switch (layoutStyle){
             case ZigZag:
