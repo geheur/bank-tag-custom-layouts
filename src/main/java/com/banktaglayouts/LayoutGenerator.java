@@ -161,13 +161,8 @@ public class LayoutGenerator {
 		log.debug("equipped gear is " + equippedItems);
 		log.debug("inventory is " + inventory);
 
-
-		equippedItems = equippedItems.stream().filter(integer -> integer != -1).collect(Collectors.toList());
-		inventory = inventory.stream().filter(integer -> integer != -1).collect(Collectors.toList());
-		additionalItems = additionalItems.stream().filter(integer -> integer != -1).collect(Collectors.toList());
-		runePouch = runePouch.stream().filter(integer -> integer != -1).collect(Collectors.toList());
-
 		int i = 0;
+
 		// lay out equipped items.
 		i = layoutItems(equippedItems, currentLayout, previewLayout, displacedItems, i, true);
 
