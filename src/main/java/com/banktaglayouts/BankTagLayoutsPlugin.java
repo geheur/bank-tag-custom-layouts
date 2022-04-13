@@ -1298,7 +1298,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (
 				config.preventVanillaPlaceholderMenuBug() &&
 						!client.isMenuOpen() &&
-						WidgetInfo.TO_GROUP(event.getWidgetId()) == WidgetID.BANK_GROUP_ID &&
+						WidgetInfo.TO_GROUP(event.getParam1()) == WidgetID.BANK_GROUP_ID &&
 						event.getMenuOption().equals("Release")
 		) {
 			event.consume();
@@ -1315,7 +1315,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		String menuOption = event.getMenuOption();
 		boolean consume = true;
 		if (menuOption.startsWith(REMOVE_FROM_LAYOUT_MENU_OPTION)) {
-			removeFromLayout(event.getActionParam());
+			removeFromLayout(event.getParam0());
 		} else if (ENABLE_LAYOUT.equals(menuOption)) {
 			enableLayout(LayoutableThing.bankTag(menuTarget));
 		} else if (DISABLE_LAYOUT.equals(menuOption)) {
@@ -1327,9 +1327,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		} else if (PREVIEW_AUTO_LAYOUT.equals(menuOption)) {
 			showLayoutPreview();
 		} else if (DUPLICATE_ITEM.equals(menuOption)) {
-			duplicateItem(event.getActionParam());
+			duplicateItem(event.getParam0());
 		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
-			removeFromLayout(event.getActionParam());
+			removeFromLayout(event.getParam0());
 		} else {
 			consume = false;
 		}
