@@ -181,8 +181,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
 
 	// Copied from the rune pouch plugin
-	private static final Varbits[] AMOUNT_VARBITS = {Varbits.RUNE_POUCH_AMOUNT1, Varbits.RUNE_POUCH_AMOUNT2, Varbits.RUNE_POUCH_AMOUNT3};
-	private static final Varbits[] RUNE_VARBITS = {Varbits.RUNE_POUCH_RUNE1, Varbits.RUNE_POUCH_RUNE2, Varbits.RUNE_POUCH_RUNE3};
+	private static final int[] AMOUNT_VARBITS = {Varbits.RUNE_POUCH_AMOUNT1, Varbits.RUNE_POUCH_AMOUNT2, Varbits.RUNE_POUCH_AMOUNT3};
+	private static final int[] RUNE_VARBITS = {Varbits.RUNE_POUCH_RUNE1, Varbits.RUNE_POUCH_RUNE2, Varbits.RUNE_POUCH_RUNE3};
 
 	private Widget showLayoutPreviewButton = null;
 	private Widget applyLayoutPreviewButton = null;
@@ -565,11 +565,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		List<Integer> runes = new ArrayList<>(0);
 		for (int i = 0; i < AMOUNT_VARBITS.length; i++)
 		{
-			int amount = client.getVar(AMOUNT_VARBITS[i]);
+			int amount = client.getVarbitValue(AMOUNT_VARBITS[i]);
 			if (amount <= 0) {
 				continue;
 			}
-			int runeId = client.getVar(RUNE_VARBITS[i]);
+			int runeId = client.getVarbitValue(RUNE_VARBITS[i]);
 			RunepouchRune rune = RunepouchRune.getRune(runeId);
 			if (rune != null) {
 				runes.add(rune.getItemId());
@@ -1328,7 +1328,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (
 				config.preventVanillaPlaceholderMenuBug() &&
 						!client.isMenuOpen() &&
-						WidgetInfo.TO_GROUP(event.getWidgetId()) == WidgetID.BANK_GROUP_ID &&
+						WidgetInfo.TO_GROUP(event.getParam1()) == WidgetID.BANK_GROUP_ID &&
 						event.getMenuOption().equals("Release")
 		) {
 			event.setConsumed(true);
@@ -1345,7 +1345,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		String menuOption = event.getMenuOption();
 		boolean consume = true;
 		if (menuOption.startsWith(REMOVE_FROM_LAYOUT_MENU_OPTION)) {
-			removeFromLayout(event.getActionParam());
+			removeFromLayout(event.getParam0());
 		} else if (ENABLE_LAYOUT.equals(menuOption)) {
 			enableLayout(LayoutableThing.bankTag(menuTarget));
 		} else if (DISABLE_LAYOUT.equals(menuOption)) {
@@ -1357,9 +1357,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		} else if (PREVIEW_AUTO_LAYOUT.equals(menuOption)) {
 			showLayoutPreview();
 		} else if (DUPLICATE_ITEM.equals(menuOption)) {
-			duplicateItem(event.getActionParam());
+			duplicateItem(event.getParam0());
 		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
-			removeFromLayout(event.getActionParam());
+			removeFromLayout(event.getParam0());
 		} else {
 			consume = false;
 		}
