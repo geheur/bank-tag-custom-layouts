@@ -7,6 +7,7 @@ import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.tooltip.Tooltip;
 import net.runelite.client.ui.overlay.tooltip.TooltipManager;
@@ -36,6 +37,7 @@ public class FakeItemOverlay extends Overlay {
     FakeItemOverlay()
     {
         drawAfterLayer(WidgetInfo.BANK_ITEM_CONTAINER);
+        setLayer(OverlayLayer.MANUAL);
         setPosition(OverlayPosition.DYNAMIC);
     }
 
