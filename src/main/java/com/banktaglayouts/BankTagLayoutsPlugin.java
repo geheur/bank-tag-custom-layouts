@@ -1331,7 +1331,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 						WidgetInfo.TO_GROUP(event.getWidgetId()) == WidgetID.BANK_GROUP_ID &&
 						event.getMenuOption().equals("Release")
 		) {
-			event.setConsumed(true);
+			event.consume();
 			return;
 		}
 
