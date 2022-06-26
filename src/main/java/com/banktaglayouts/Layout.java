@@ -1,5 +1,9 @@
 package com.banktaglayouts;
 
+import com.banktaglayouts.BtlMenuSwapper.WithdrawMode;
+import java.util.Set;
+import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -14,13 +18,20 @@ import java.util.stream.Collectors;
 @Slf4j
 public class Layout {
 
-    // Maps indexes to items.
-    private Map<Integer, Integer> layoutMap = new HashMap<>();
+	@AllArgsConstructor
+	static final class IndexData {
+		public final int itemId; // not the exact itemid that will appear in this spot, due to placeholders/variation items.
+		public final WithdrawMode withdrawMode; // null indicates no swap.
+	}
+
+    // Key is the index into the layout.
+    private final Map<Integer, IndexData> layoutMap = new HashMap<>();
 
     public static Layout fromString(String layoutString) {
         return fromString(layoutString, false);
     }
 
+	// TODO create test.
     public static Layout fromString(String layoutString, boolean ignoreNfe) {
         Layout layout = Layout.emptyLayout();
         if (layoutString.isEmpty()) return layout;
@@ -29,8 +40,17 @@ public class Layout {
             try {
                 int itemId = Integer.parseInt(split[0]);
                 int index = Integer.parseInt(split[1]);
+                WithdrawMode withdrawMode = null;
+                for (int i = 2; i < split.length; i++) {
+                	String extraArg = split[i];
+                	if (extraArg.startsWith("q")) {
+                		extraArg = extraArg.substring(1);
+                		withdrawMode = WithdrawMode.fromSaveString(extraArg);
+                		if (withdrawMode == null) log.warn("found quantity string \"" + extraArg + "\" that is not valid");
+					}
+				}
                 if (index >= 0) {
-                    layout.putItem(itemId, index);
+                    layout.putItem(itemId, index, withdrawMode);
                 } else {
                     log.debug("Removed item " + itemId + " due to it having a negative index (" + index + ")");
                 }
@@ -47,31 +67,59 @@ public class Layout {
     }
 
     @Override
+	// TODO create test.
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        for (Map.Entry<Integer, Integer> integerIntegerEntry : allPairs()) {
-            sb.append(integerIntegerEntry.getValue() + ":" + integerIntegerEntry.getKey() + ",");
+
+        for (Map.Entry<Integer, IndexData> e : allPairs()) {
+			IndexData indexData = e.getValue();
+			sb.append(indexData.itemId + ":" + e.getKey());
+            if (indexData.withdrawMode != null) {
+            	sb.append(":q" + indexData.withdrawMode.saveString);
+			}
+            sb.append(",");
         }
+
+        // remove trialing comma.
         if (sb.length() > 0) {
             sb.delete(sb.length() - 1, sb.length());
         }
+
         return sb.toString();
     }
 
     public void putItem(int itemId, int index) {
-        if (itemId <= 0) {
-            layoutMap.remove(index);
-            return;
-        }
-        layoutMap.put(index, itemId);
+    	putItem(itemId, index, null);
     }
 
-    /** returns -1 if there is no item there. */
+	public void putItem(int itemId, int index, WithdrawMode withdrawMode) {
+		if (itemId <= 0) {
+			layoutMap.remove(index);
+			return;
+		}
+		layoutMap.put(index, new IndexData(itemId, withdrawMode));
+	}
+
+	/** returns -1 if there is no item there. */
     public int getItemAtIndex(int index) {
-        return layoutMap.getOrDefault(index, -1);
+		IndexData indexData = layoutMap.get(index);
+		return indexData != null ? indexData.itemId : -1;
     }
 
-    public Iterator<Map.Entry<Integer, Integer>> allPairsIterator() {
+	public WithdrawMode getWithdrawMode(int index)
+	{
+		IndexData indexData = layoutMap.get(index);
+		return indexData != null ? indexData.withdrawMode : null;
+	}
+
+	public void setWithdrawMode(int index, WithdrawMode withdrawMode)
+	{
+		IndexData indexData = layoutMap.get(index);
+		assert indexData != null;
+		if (indexData != null) layoutMap.put(index, new IndexData(indexData.itemId, withdrawMode));
+	}
+
+    public Iterator<Map.Entry<Integer, IndexData>> allPairsIterator() {
         return layoutMap.entrySet().iterator();
     }
 
@@ -82,7 +130,7 @@ public class Layout {
      */
     public Integer getIndexForItem(int itemId) {
         return allPairs().stream()
-                .filter(e -> e.getValue() == itemId)
+                .filter(e -> e.getValue().itemId == itemId)
                 .map(e -> e.getKey())
                 .findAny().orElse(-1);
     }
@@ -91,23 +139,49 @@ public class Layout {
      * Finds the indexes for the EXACT itemId. Does not factor in placeholders or variation items.
      * If there're no indexes for this itemId, then it returns an empty list.
      */
-    private List<Integer> getIndexesForItem(int itemId)
+    public List<Integer> getIndexesForItem(int itemId)
     {
         return allPairs().stream()
-                .filter(e -> e.getValue() == itemId)
+                .filter(e -> e.getValue().itemId == itemId)
                 .map(e -> e.getKey())
                 .collect(Collectors.toList());
     }
 
-    public Collection<Integer> getAllUsedItemIds() {
-        return new HashSet<>(layoutMap.values());
+	/**
+	 * Counts the indexes with the EXACT itemId. Does not factor in placeholders or variation items.
+	 */
+	public int countItemsWithId(int itemId)
+	{
+		return (int) allPairs().stream()
+			.filter(e -> e.getValue().itemId == itemId)
+			.count();
+	}
+
+	/**
+	 * Whether this EXACT itemId has duplicates. Does not factor in placeholders or variation items.
+	 */
+	public boolean itemHasDuplicates(int itemId)
+	{
+		boolean foundOne = false;
+		for (Map.Entry<Integer, IndexData> e : allPairs())
+		{
+			if (e.getValue().itemId == itemId) {
+				if (foundOne) return true;
+				foundOne = true;
+			}
+		}
+		return false;
+	}
+
+	public Set<Integer> getAllUsedItemIds() {
+        return layoutMap.values().stream().map(indexData -> indexData.itemId).collect(Collectors.toSet());
     }
 
     public Collection<Integer> getAllUsedIndexes() {
         return layoutMap.keySet();
     }
 
-    public Collection<Map.Entry<Integer, Integer>> allPairs() {
+    public Collection<Map.Entry<Integer, IndexData>> allPairs() {
         return layoutMap.entrySet();
     }
 
@@ -138,28 +212,28 @@ public class Layout {
      * @param targetIndex target location's index.
      * @param draggedItemId the dragged item widget's item id.
      */
+	// TODO create test.
     public void moveItem(int draggedItemIndex, int targetIndex, int draggedItemId) {
-        int layoutItemId = getItemAtIndex(draggedItemIndex);
-        if (draggedItemId == -1) { // dragging a layout placeholder, or bad input.
-            draggedItemId = layoutItemId;
-            assert draggedItemId != -1;
-        } else if (layoutItemId != draggedItemId) {
-            // Modifying a layout should use the real item there, NOT the item id stored in the layout (which can be
-            // different due to how variant items are assigned indexes), because the item the user sees themselves
-            // moving is the item id in the widget, not the item id in the layout. Therefore, the duplicates must be
-            // updated to use that id as well.
-            for (Integer index : getIndexesForItem(layoutItemId)) {
-                putItem(draggedItemId, index);
-            }
-        }
+		IndexData draggedItem = layoutMap.get(draggedItemIndex);
+        if (draggedItemId != -1 && draggedItemId != draggedItem.itemId) { // dragging a real item.
+			int layoutItemId = draggedItem.itemId;
+        	draggedItem = new IndexData(draggedItemId, draggedItem.withdrawMode);
+			// Modifying a layout should use the real item there, NOT the item id stored in the layout (which can be
+			// different due to how variant items are assigned indexes), because the item the user sees themselves
+			// moving is the item id in the widget, not the item id in the layout. Therefore, the duplicates must be
+			// updated to use that id as well.
+			for (Integer index : getIndexesForItem(layoutItemId)) {
+				layoutMap.put(index, draggedItem);
+			}
+		}
 
-        int targetItemId = getItemAtIndex(targetIndex);
+		IndexData targetItem = layoutMap.get(targetIndex);
 
         clearIndex(draggedItemIndex);
         clearIndex(targetIndex);
-        putItem(draggedItemId, targetIndex);
-        if (targetItemId != -1) {
-            putItem(targetItemId, draggedItemIndex);
+        layoutMap.put(targetIndex, draggedItem);
+        if (targetItem != null) {
+            layoutMap.put(draggedItemIndex, targetItem);
         }
     }
 
@@ -168,35 +242,23 @@ public class Layout {
         return layoutMap.isEmpty();
     }
 
-    public int countItemsWithId(int idAtIndex)
+	// TODO create test.
+	public void duplicateItem(int clickedItemIndex, int itemIdAtIndex)
     {
-        int count = 0;
-        for (Map.Entry<Integer, Integer> pair : allPairs())
-        {
-            if (pair.getValue() == idAtIndex) {
-                count++;
-            }
-        }
-        return count;
-    }
+		int duplicatedItemIndex = getFirstEmptyIndex(clickedItemIndex);
 
-    // TODO create test.
-    public void duplicateItem(int clickedItemIndex, int itemIdAtIndex)
-    {
-        int duplicatedItemIndex = getFirstEmptyIndex(clickedItemIndex);
+		IndexData itemToDuplicate = layoutMap.get(clickedItemIndex);
+		if (itemIdAtIndex != -1 && itemIdAtIndex != itemToDuplicate.itemId) { // dragging a real item.
+			int layoutItemId = itemToDuplicate.itemId;
+			itemToDuplicate = new IndexData(itemIdAtIndex, itemToDuplicate.withdrawMode);
+			// Modifying a layout should always use the real item there, NOT the item id stored in the layout (which can
+			// be different due to how variant items are assigned indexes).
+			// Therefore, the duplicates must be updated to use that id as well.
+			for (Integer index : getIndexesForItem(layoutItemId)) {
+				layoutMap.put(index, itemToDuplicate);
+			}
+		}
 
-        int layoutItemId = getItemAtIndex(clickedItemIndex);
-        if (itemIdAtIndex == -1) itemIdAtIndex = layoutItemId;
-        if (layoutItemId != itemIdAtIndex) {
-            // Modifying a layout should always use the real item there, NOT the item id stored in the layout (which can
-            // be different due to how variant items are assigned indexes).
-            // Therefore, the duplicates must be updated to use that id as well.
-            List<Integer> indexesToChange = getIndexesForItem(layoutItemId);
-            for (Integer index : indexesToChange) {
-                putItem(itemIdAtIndex, index);
-            }
-        }
-
-        putItem(itemIdAtIndex, duplicatedItemIndex);
+        layoutMap.put(duplicatedItemIndex, itemToDuplicate);
     }
 }

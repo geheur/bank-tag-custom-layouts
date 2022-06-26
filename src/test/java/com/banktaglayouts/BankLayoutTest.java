@@ -2,6 +2,7 @@ package com.banktaglayouts;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
+import static com.banktaglayouts.BtlMenuSwapper.WithdrawMode.*;
 import com.google.inject.Guice;
 import com.google.inject.Inject;
 import com.google.inject.testing.fieldbinder.Bind;
@@ -217,7 +218,7 @@ public class BankLayoutTest
 		}
 	}
 
-    /*
+	/*
     targetItem only matters if targetType is real or layout placeholder.
 
     BankSlot.Type is misused here as an argument.
@@ -317,7 +318,36 @@ public class BankLayoutTest
         assertEquals(expectedLaidOutBank, laidOutBank);
     }
 
-    @Test
+	@Test
+	public void testMoveItemWithWithdrawQuantity() {
+		Layout layout = new Layout();
+		layout.putItem(GAMES_NECKLACE_8.id, 1, WITHDRAW_5);
+		layout.putItem(GAMES_NECKLACE_7.id, 2, WITHDRAW_10);
+		layout.moveItem(1, 2, GAMES_NECKLACE_8.id);
+		assertEquals(WITHDRAW_5, layout.getWithdrawMode(2));
+		assertEquals(WITHDRAW_10, layout.getWithdrawMode(1));
+	}
+
+	@Test
+	public void testMoveDuplicatedItemWithWithdrawQuantity() {
+		Layout layout = new Layout();
+		layout.putItem(GAMES_NECKLACE_8.id, 1, WITHDRAW_5);
+		layout.putItem(GAMES_NECKLACE_8.id, 2, WITHDRAW_10);
+		layout.moveItem(1, 2, GAMES_NECKLACE_8.id);
+		assertEquals(WITHDRAW_5, layout.getWithdrawMode(2));
+		assertEquals(WITHDRAW_10, layout.getWithdrawMode(1));
+	}
+
+	@Test
+	public void testDuplicateItemWithWithdrawQuantity() {
+		Layout layout = new Layout();
+		layout.putItem(GAMES_NECKLACE_8.id, 1, WITHDRAW_5);
+		layout.duplicateItem(1, GAMES_NECKLACE_8.id);
+		assertEquals(WITHDRAW_5, layout.getWithdrawMode(2));
+		assertEquals(WITHDRAW_5, layout.getWithdrawMode(1));
+	}
+
+	@Test
     public void testDuplicateItems()
 	{
 		List<Item> layoutItems = Arrays.asList(GAMES_NECKLACE_8, GAMES_NECKLACE_8_PH, MAGIC_LOGS);

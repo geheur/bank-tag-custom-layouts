@@ -1,5 +1,7 @@
 package com.banktaglayouts;
 
+import com.banktaglayouts.BtlMenuSwapper.WithdrawMode;
+import com.banktaglayouts.Layout.IndexData;
 import com.banktaglayouts.invsetupsstuff.InventorySetup;
 import com.banktaglayouts.invsetupsstuff.InventorySetupsAdapter;
 import com.google.common.annotations.VisibleForTesting;
@@ -65,6 +67,7 @@ import net.runelite.api.events.DraggingWidgetChanged;
 import net.runelite.api.events.FocusChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.MenuEntryAdded;
+import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.MenuShouldLeftClick;
 import net.runelite.api.events.ScriptPostFired;
@@ -79,6 +82,7 @@ import net.runelite.api.widgets.WidgetPositionMode;
 import net.runelite.api.widgets.WidgetType;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
@@ -176,6 +180,12 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Inject
 	public Gson gson;
 
+	@Inject
+	private EventBus eventBus;
+
+	@Inject
+	BtlMenuSwapper menuSwapper;
+
 	final AntiDragPluginUtil antiDrag = new AntiDragPluginUtil(this);
 	private final LayoutGenerator layoutGenerator = new LayoutGenerator(this);
 
@@ -261,6 +271,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Override
 	protected void startUp()
 	{
+		menuSwapper.startUp();
+		eventBus.register(menuSwapper);
+
 		overlayManager.add(fakeItemOverlay);
 		spriteManager.addSpriteOverrides(Sprites.values());
 		mouseManager.registerMouseListener(this);
@@ -278,6 +291,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Override
 	protected void shutDown()
 	{
+		menuSwapper.shutDown();
+		eventBus.unregister(menuSwapper);
+
 		overlayManager.remove(fakeItemOverlay);
 		spriteManager.removeSpriteOverrides(Sprites.values());
 		mouseManager.unregisterMouseListener(this);
@@ -932,13 +948,13 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	Set<FakeItem> calculateFakeItems(Layout layout, Map<Integer, Widget> indexToWidget)
 	{
 		Set<FakeItem> fakeItems = new HashSet<>();
-		for (Map.Entry<Integer, Integer> entry : layout.allPairs()) {
+		for (Map.Entry<Integer, IndexData> entry : layout.allPairs()) {
 			Integer index = entry.getKey();
 			if (indexToWidget.containsKey(index)) continue;
 
-			int itemId = entry.getValue();
+			int itemId = entry.getValue().itemId;
 			Optional<Widget> any = layout.allPairs().stream()
-					.filter(e -> e.getValue() == itemId)
+					.filter(e -> e.getValue().itemId == itemId)
 					.map(e -> indexToWidget.get(e.getKey()))
 					.filter(widget -> widget != null)
 					.findAny();
@@ -1027,7 +1043,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	@Override
 	public MouseEvent mousePressed(MouseEvent mouseEvent) {
-		mouseIsPressed = true;
 		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(currentLayoutableThing) || !config.showLayoutPlaceholders() || client.isMenuOpen()) return mouseEvent;
 		if (isShowingPreview() && applyLayoutPreviewButton != null && applyLayoutPreviewButton.contains(client.getMouseCanvasPosition())) {
 			return mouseEvent;
@@ -1047,7 +1062,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	@Override
 	public MouseEvent mouseReleased(MouseEvent mouseEvent) {
-		mouseIsPressed = false;
 		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(currentLayoutableThing)) return mouseEvent;
 		if (draggedItemIndex == -1) return mouseEvent;
 
@@ -1111,7 +1125,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			sawMenuEntryAddedThisClientTick = true;
 
 			// If you move the items when you're dragging an item over its duplicates, undesirable behavior occurs.
-			if (!mouseIsPressed)
+			if (client.getDraggedWidget() == null)
 			{
 				boolean movedItemWidget = moveDuplicateItem();
 				if (movedItemWidget)
@@ -1148,8 +1162,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 	}
 
-	private volatile boolean mouseIsPressed = false;
-
 	/**
 	 * Makes sure there is a real item under the mouse cursor if the mouse is over or near a duplicated item.
 	 * @return true if an item widget was moved, false otherwise. If true, fake items should be updated and
@@ -1172,19 +1184,12 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return false;
 		}
 
-		int count = 0;
-		List<Integer> indexes = new ArrayList<>();
-		for (Map.Entry<Integer, Integer> entry : layout.allPairs())
-		{
-			if (entry.getValue() == itemId) {
-				count++;
-				indexes.add(entry.getKey());
-			}
-		}
-		if (count > 1) {
+		// if the mouse is over a fake duplicate item, swap the real with the fake.
+		List<Integer> indexes = layout.getIndexesForItem(itemId);
+		if (indexes.size() > 1) { // the item has duplicates.
 			for (Integer index : indexes)
 			{
-				if (indexToWidget.containsKey(index) && index != mousePositionIndex) {
+				if (indexToWidget.containsKey(index) && index != mousePositionIndex) { // this is the real duplicate item and it needs to be moved.
 					Widget widget = indexToWidget.get(index);
 					indexToWidget.remove(index);
 					indexToWidget.put(mousePositionIndex, widget);
@@ -1215,8 +1220,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		boolean isLayoutPlaceholder = fakeItems.stream()
 				.filter(fakeItem -> fakeItem.getIndex() == index && fakeItem.isLayoutPlaceholder()).findAny().isPresent();
 
-		int itemCount = layout.countItemsWithId(itemIdAtIndex);
-		if (itemCount > 1 && !isLayoutPlaceholder) {
+		if (layout.itemHasDuplicates(itemIdAtIndex) && !isLayoutPlaceholder) { // layout placeholders already have the "remove-layout" menu option which does the same thing as remove-duplicate-item.
 			client.createMenuEntry(-1)
 					.setOption(REMOVE_DUPLICATE_ITEM)
 					.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
@@ -1229,8 +1233,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
 				.setType(MenuAction.RUNELITE_OVERLAY)
 				.setParam0(index);
-
-		if (!isRealItem) return; // layout placeholders already have "remove-layout" menu option which does the same thing as remove-duplicate-item.
 	}
 
 	private void addEntry(String menuTarget, String menuOption) {
@@ -1406,9 +1408,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			containsId = id -> inventorySetupsAdapter.setupContainsItem(inventorySetup, id);
 		}
 
-		Iterator<Map.Entry<Integer, Integer>> iter = layout.allPairsIterator();
+		Iterator<Map.Entry<Integer, IndexData>> iter = layout.allPairsIterator();
 		while (iter.hasNext()) {
-			int itemId = iter.next().getValue();
+			int itemId = iter.next().getValue().itemId;
 
 			if (!containsId.test(itemId))
 			{
@@ -1434,11 +1436,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 
 		Multimap<Integer, Integer> variantItemsInLayout = LinkedListMultimap.create(); // key is the variant base id; the list contains the item ids;
-		for (Map.Entry<Integer, Integer> pair : layout.allPairs()) {
-			int nonPlaceholderId = getNonPlaceholderId(pair.getValue());
+		for (Map.Entry<Integer, IndexData> pair : layout.allPairs()) {
+			int nonPlaceholderId = getNonPlaceholderId(pair.getValue().itemId);
 			if (itemShouldBeTreatedAsHavingVariants(nonPlaceholderId)) {
 				int variationBaseId = getVariationBaseId(nonPlaceholderId);
-				variantItemsInLayout.put(variationBaseId, pair.getValue());
+				variantItemsInLayout.put(variationBaseId, pair.getValue().itemId);
 			}
 		}
 

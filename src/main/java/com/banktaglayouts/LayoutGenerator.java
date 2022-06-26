@@ -1,5 +1,6 @@
 package com.banktaglayouts;
 
+import com.banktaglayouts.Layout.IndexData;
 import com.banktaglayouts.invsetupsstuff.InventorySetup;
 
 import java.util.*;
@@ -94,13 +95,13 @@ public class LayoutGenerator {
 		}
 
 		// If the item is in a safe spot copy it over from the old layout
-		for (Map.Entry<Integer, Integer> e: currentLayout.allPairs()) {
+		for (Map.Entry<Integer, IndexData> e: currentLayout.allPairs()) {
 			if (indexInAllowedSpace(inventory, e.getKey())) {
-				previewLayout.putItem(e.getValue(), e.getKey());
+				previewLayout.putItem(e.getValue().itemId, e.getKey());
 			}
 		}
 		// If the item is in an invalid spot move it to a valid spot in the sandbox area
-		for (Map.Entry<Integer, Integer> e: currentLayout.allPairs()) {
+		for (Map.Entry<Integer, IndexData> e: currentLayout.allPairs()) {
 			if (!indexInAllowedSpace(inventory, e.getKey())) {
 				if (inventory.contains(e.getValue()) || equippedItems.contains(e.getValue()) || (hasPouch && runePouch.contains(e.getValue()))) {
 					continue;
@@ -110,8 +111,8 @@ public class LayoutGenerator {
 					index++;
 				}
 
-                if (!layoutContainsItem(e.getValue(), previewLayout)) {
-					previewLayout.putItem(e.getValue(), index);
+                if (!layoutContainsItem(e.getValue().itemId, previewLayout)) {
+					previewLayout.putItem(e.getValue().itemId, index);
 				}
 			}
 		}
@@ -196,9 +197,9 @@ public class LayoutGenerator {
 		int displacedItemsStart = i;
 
 		// copy items from current layout into the empty spots.
-		for (Map.Entry<Integer, Integer> itemPosition : currentLayout.allPairs()) {
+		for (Map.Entry<Integer, IndexData> itemPosition : currentLayout.allPairs()) {
 			int index = itemPosition.getKey();
-			int currentItemAtIndex = itemPosition.getValue();
+			int currentItemAtIndex = itemPosition.getValue().itemId;
 			int previewItemAtIndex = previewLayout.getItemAtIndex(index);
 
 			if (currentItemAtIndex != -1 && previewItemAtIndex == -1) {

@@ -7,6 +7,7 @@ public class ExamplePluginTest
 {
 	public static void main(String[] args) throws Exception
 	{
+		System.setProperty("runelite.pluginhub.version", "1.8.25.2");
 		ExternalPluginManager.loadBuiltin(BankTagLayoutsPlugin.class);
 		RuneLite.main(args);
 	}
