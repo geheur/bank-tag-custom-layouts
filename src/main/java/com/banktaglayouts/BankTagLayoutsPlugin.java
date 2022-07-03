@@ -28,7 +28,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -41,6 +40,7 @@ import java.util.stream.Collectors;
 import javax.inject.Inject;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
@@ -155,9 +155,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Inject
 	private ClientThread clientThread;
 
-	// This is package-private for use in FakeItemOverlay because if it's @Injected there it's a different TabInterface due to some bug I don't understand.
 	@Inject
-	TabInterface tabInterface;
+	private TabInterface tabInterface;
 
 	@Inject
 	private TagManager tagManager;
@@ -172,27 +171,34 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private ChatboxPanelManager chatboxPanelManager;
 
 	@Inject
-	private BankTagLayoutsConfig config;
+	BankTagLayoutsConfig config;
 
 	@Inject
 	public Gson gson;
 
-	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
-	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
+	final AntiDragPluginUtil antiDrag = new AntiDragPluginUtil(this);
+	private final LayoutGenerator layoutGenerator = new LayoutGenerator(this);
 
 	// Copied from the rune pouch plugin
 	private static final int[] AMOUNT_VARBITS = {Varbits.RUNE_POUCH_AMOUNT1, Varbits.RUNE_POUCH_AMOUNT2, Varbits.RUNE_POUCH_AMOUNT3};
 	private static final int[] RUNE_VARBITS = {Varbits.RUNE_POUCH_RUNE1, Varbits.RUNE_POUCH_RUNE2, Varbits.RUNE_POUCH_RUNE3};
 
+	/**
+	 * currentLayoutableThing is either the currently displayed bank tag (whether or not the layout is enabled for that
+	 * tag) or, if the plugin is set to work with inventory setups, the inventory setup that is currently selected. This
+	 * value is updating during BANKMAIN_BUILD as changes in tag tabs and inventory setups always trigger that script to
+	 * run. It is also updated when the bank interface is closed.
+	 */
+	@Getter
+	private LayoutableThing currentLayoutableThing = null;
+	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is no layout enabled currently.
+	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
+
 	private Widget showLayoutPreviewButton = null;
 	private Widget applyLayoutPreviewButton = null;
 	private Widget cancelLayoutPreviewButton = null;
 
-	private LayoutableThing lastLayoutable = null;
-	private int lastHeight = Integer.MAX_VALUE;
-
-	final AntiDragPluginUtil antiDrag = new AntiDragPluginUtil(this);
-	private final LayoutGenerator layoutGenerator = new LayoutGenerator(this);
+	private int lastHeight;
 
 	private void updateButton() {
 		if (showLayoutPreviewButton == null) {
@@ -236,14 +242,14 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			cancelLayoutPreviewButton.setSpriteId(Sprites.CANCEL_PREVIEW.getSpriteId());
 			cancelLayoutPreviewButton.setNoClickThrough(true);
 
-			cancelLayoutPreviewButton.setOnOpListener((JavaScriptCallback) (e) -> cancelLayoutPreview());
+			cancelLayoutPreviewButton.setOnOpListener((JavaScriptCallback) (e) -> cancelLayoutPreview(true));
 			cancelLayoutPreviewButton.setHasListener(true);
 			cancelLayoutPreviewButton.revalidate();
 			cancelLayoutPreviewButton.setAction(0, "Cancel preview");
 		}
 
 		hideLayoutPreviewButtons(!isShowingPreview());
-		showLayoutPreviewButton.setHidden(!(config.showAutoLayoutButton() && getCurrentLayoutableThing() != null && !isShowingPreview()));
+		showLayoutPreviewButton.setHidden(!(config.showAutoLayoutButton() && currentLayoutableThing != null && !isShowingPreview()));
 	}
 
 	@Subscribe
@@ -280,11 +286,13 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		clientThread.invokeLater(() -> {
 			if (client.getGameState() == GameState.LOGGED_IN) {
 				indexToWidget.clear();
-				cancelLayoutPreview();
+				cancelLayoutPreview(false);
 				showLayoutPreviewButton.setHidden(true);
 
 				bankSearch.layoutBank();
 			}
+
+			currentLayoutableThing = null;
 		});
 	}
 
@@ -330,7 +338,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			{
 				String inventorySetupName = key.substring(prefix.length());
 				String layoutString = configManager.getConfiguration(CONFIG_GROUP, INVENTORY_SETUPS_LAYOUT_CONFIG_KEY_PREFIX + inventorySetupName);
-				String escapedKey = LayoutableThing.inventorySetup(inventorySetupName).configKey();
+				String escapedKey = inventorySetupLayoutableThing(inventorySetupName).configKey();
 				configManager.setConfiguration(CONFIG_GROUP, escapedKey, layoutString);
 			}
 		}
@@ -385,12 +393,12 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		// Check if it's a rename or something else.
 		if (oldTags.size() != 1 || newTags.size() != 1) return;
 
-		LayoutableThing oldName = LayoutableThing.bankTag(oldTags.iterator().next());
+		LayoutableThing oldName = bankTagLayoutableThing(oldTags.iterator().next());
 		String newName = newTags.iterator().next();
 
 		Layout oldLayout = getBankOrder(oldName);
 		if (oldLayout != null) {
-			saveLayout(LayoutableThing.bankTag(newName), oldLayout);
+			saveLayout(bankTagLayoutableThing(newName), oldLayout);
 			configManager.unsetConfiguration(CONFIG_GROUP, oldName.configKey());
 		}
 	}
@@ -435,25 +443,25 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			}
 		}
 
-		saveLayoutNonPreview(previewLayoutable, previewLayout);
+		previewLayoutable.setLayout(previewLayout);
 
-		cancelLayoutPreview();
+		cancelLayoutPreview(false);
 		bankSearch.layoutBank();
 	}
 
 	private void hideLayoutPreviewButtons(boolean hide) {
 		if (applyLayoutPreviewButton != null) applyLayoutPreviewButton.setHidden(hide);
 		if (cancelLayoutPreviewButton != null) cancelLayoutPreviewButton.setHidden(hide);
-		if (showLayoutPreviewButton != null && config.showAutoLayoutButton() && getCurrentLayoutableThing() != null) showLayoutPreviewButton.setHidden(!hide);
+		if (showLayoutPreviewButton != null && config.showAutoLayoutButton() && currentLayoutableThing != null) showLayoutPreviewButton.setHidden(!hide);
 	}
 
-	private void cancelLayoutPreview() {
+	private void cancelLayoutPreview(boolean layoutBank) {
 		previewLayout = null;
 		previewLayoutable = null;
 
 		hideLayoutPreviewButtons(true);
 
-		applyCustomBankTagItemPositions();
+		if (layoutBank) applyCustomBankTagItemPositions();
 	}
 
 	/** null indicates that there should not be a preview shown. */
@@ -465,7 +473,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private void showLayoutPreview() {
 
 		if (isShowingPreview()) return;
-		LayoutableThing currentLayoutableThing = getCurrentLayoutableThing();
 		if (currentLayoutableThing == null) {
 			chatMessage("Select a tag tab before using this feature.");
 			return;
@@ -483,17 +490,17 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 			hideLayoutPreviewButtons(false);
 
-			Layout currentLayout = getBankOrderNonPreview(currentLayoutableThing);
+			Layout currentLayout = currentLayoutableThing.getLayout();
 			if (currentLayout == null) currentLayout = Layout.emptyLayout();
 
-			previewLayout = layoutGenerator.generateLayout(equippedGear, inventory, getRunePouchContents(), Collections.emptyList(), currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
+			previewLayout = layoutGenerator.generateLayout(equippedGear, inventory, getRunePouchContents(), Collections.emptyList(), currentLayout, config.autoLayoutStyle());
 		} else {
 			InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(currentLayoutableThing.name);
 
-			Layout currentLayout = getBankOrderNonPreview(currentLayoutableThing);
+			Layout currentLayout = currentLayoutableThing.getLayout();
 			if (currentLayout == null) currentLayout = Layout.emptyLayout();
 
-			previewLayout = layoutGenerator.basicInventorySetupsLayout(inventorySetup, currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
+			previewLayout = layoutGenerator.basicInventorySetupsLayout(inventorySetup, currentLayout);
 		}
 
 		hideLayoutPreviewButtons(false);
@@ -501,10 +508,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		previewLayoutable = currentLayoutableThing;
 
 		applyCustomBankTagItemPositions();
-	}
-
-	private int getAutoLayoutDuplicateLimit() {
-		return !config.autoLayoutDuplicatesEnabled() ? 0 : config.autoLayoutDuplicateLimit();
 	}
 
 	private List<Integer> getEquippedGear() {
@@ -529,10 +532,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	@Subscribe
 	public void onClientTick(ClientTick clientTick) {
-		if (checkInventorySetup + 1 == client.getGameCycle()) {
-			updateInventorySetupShown();
-		}
-
 		Widget widget = client.getWidget(WidgetInfo.BANK_CONTAINER);
 		if (widget == null || widget.isHidden()) {
 			return;
@@ -578,29 +577,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return runes;
 	}
 
-	private String inventorySetup = null;
-	private void updateInventorySetupShown() {
-		Widget bankTitleBar = client.getWidget(WidgetInfo.BANK_TITLE_BAR);
-		String newSetup = null;
-		if (bankTitleBar != null)
-		{
-			String bankTitle = bankTitleBar.getText();
-			Matcher matcher = Pattern.compile("Inventory Setup <col=ff0000>(?<setup>.*) - (?<subfilter>.*)</col>.*").matcher(bankTitle);
-			if (matcher.matches())
-			{
-				newSetup = matcher.group("setup");
-			}
-		}
-
-		inventorySetup = newSetup;
-	}
-
-	int checkInventorySetup = 0;
-
 	@Subscribe
 	public void onWidgetClosed(WidgetClosed widgetClosed) {
 		if (widgetClosed.getGroupId() == WidgetID.BANK_GROUP_ID) {
-			checkInventorySetup = client.getGameCycle();
+			log.debug("bank widget closed ===============================");
+			currentLayoutableThing = null;
 		}
 	}
 
@@ -610,40 +591,83 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return;
 		}
 
-		updateInventorySetupShown();
+		/*
+		The order of events is this:
+		BANKMAIN_BUILD start
+		BANKMAIN_FINISHBUILDING start, priority default
+		BANKMAIN_FINISHBUILDING start, priority -1 (we are right here right now).
+			inventory setups sets the bank title.
+		BANKMAIN_FINISHBUILDING end
+		BANKMAIN_BUILD end
+		 */
+		boolean changed = updateCurrentLayoutableThing();
+		if (changed) {
+			cancelLayoutPreview(false);
+		}
 
-		LayoutableThing layoutable = getCurrentLayoutableThing();
-		if (layoutable == null) {
+		if (currentLayoutableThing == null) {
 			return;
 		}
 
-		Layout layout = getBankOrder(layoutable);
+		Layout layout = getBankOrder(currentLayoutableThing);
 		if (layout == null) {
 			return;
 		}
 
-		int maxIndex = layout.getAllUsedIndexes().stream().max(Integer::compare).orElse(0);
-		int height = getYForIndex(maxIndex) + BANK_ITEM_HEIGHT;
+		int height = calculateViewportHeight(layout) - 8; // The script will add the 8 back.
+		lastHeight = height;
 
 		// This is prior to bankmain_finishbuilding running, so the arguments are still on the stack. Overwrite
 		// argument int12 (7 from the end) which is the height passed to if_setscrollsize
+		// Changing the argument here rather than using the client script prevents the scrollbar from flickering.
 		client.getIntStack()[client.getIntStackSize() - 7] = height;
 	}
 
 	@Subscribe(priority = -1f) // I want to run after the Bank Tags plugin does, since it will interfere with the layout-ing if hiding tab separators is enabled.
 	public void onScriptPostFired(ScriptPostFired event) {
 		if (event.getScriptId() == ScriptID.BANKMAIN_BUILD) {
-			LayoutableThing layoutable = getCurrentLayoutableThing();
-			if (layoutable == null || !layoutable.equals(lastLayoutable)) {
-				cancelLayoutPreview();
-			}
-
+			log.debug("bankmain build " + (currentLayoutableThing == null ? "null" : currentLayoutableThing.toString()));
 			applyCustomBankTagItemPositions(false);
-
-			lastLayoutable = layoutable;
 
 			updateButton();
 		}
+	}
+
+	private boolean updateCurrentLayoutableThing()
+	{
+		boolean isBankTag = tabInterface.isActive();
+		String inventorySetupBankTitle = isBankTag ? null : getInventorySetupBankTitle();
+		if (!isBankTag && !(inventorySetupBankTitle != null && config.useWithInventorySetups()))
+		{
+			boolean changed = currentLayoutableThing != null;
+			currentLayoutableThing = null;
+			return changed;
+		}
+		else
+		{
+			String name = isBankTag ? tabInterface.getActiveTab().getTag() : inventorySetupBankTitle;
+			if (currentLayoutableThing == null || !currentLayoutableThing.isSame(name, isBankTag))
+			{
+				currentLayoutableThing = new LayoutableThing(name, isBankTag);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private String getInventorySetupBankTitle()
+	{
+		Widget bankTitleBar = client.getWidget(WidgetInfo.BANK_TITLE_BAR);
+		if (bankTitleBar != null)
+		{
+			String bankTitle = bankTitleBar.getText();
+			Matcher matcher = Pattern.compile("Inventory Setup <col=ff0000>(?<setup>.*) - (?<subfilter>.*)</col>.*").matcher(bankTitle);
+			if (matcher.matches())
+			{
+				return matcher.group("setup");
+			}
+		}
+		return null;
 	}
 
 	private void importLayout() {
@@ -736,10 +760,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	private void importLayout(String name, Layout layout, String tagString) {
-		boolean successful = importBankTag(name, tagString);
-		if (!successful) return;
+		importBankTag(name, tagString);
 
-		saveLayout(LayoutableThing.bankTag(name), layout);
+		saveLayout(bankTagLayoutableThing(name), layout);
 
 		chatMessage("Imported layout-ed tag tab \"" + name + "\"");
 
@@ -752,11 +775,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return;
 		}
 
-		saveLayoutNonPreview(layoutable, layout);
-	}
-
-	private void saveLayoutNonPreview(LayoutableThing layoutable, Layout layout) {
-		configManager.setConfiguration(CONFIG_GROUP, layoutable.configKey(), layout.toString());
+		layoutable.setLayout(layout);
 	}
 
 	private String validateTagName(String name) {
@@ -777,8 +796,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private UsedToBeReflection copyPaste = new UsedToBeReflection(this);
 
-	// TODO what is the purpose of the return value.
-	private boolean importBankTag(String name, String tagString) {
+	private void importBankTag(String name, String tagString) {
 		log.debug("importing tag data. " + tagString);
 		final Iterator<String> dataIter = Text.fromCSV(tagString).iterator();
 		dataIter.next(); // skip name.
@@ -794,22 +812,18 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		copyPaste.saveNewTab(name);
 		copyPaste.loadTab(name);
-
-		return true;
 	}
 
 	public boolean hasLayoutEnabled(LayoutableThing layoutable) {
 		if (layoutable == null) return false;
 		if (isShowingPreview()) return true;
 
-		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
-		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
-		return configuration != null || (layoutable.isBankTab() && config.layoutEnabledByDefault()) || (layoutable.isInventorySetup() && config.useWithInventorySetups());
+		return layoutable.isLayoutEnabled();
 	}
 
 	private void enableLayout(LayoutableThing layoutable) {
 		saveLayout(layoutable, Layout.emptyLayout());
-		if (layoutable.equals(getCurrentLayoutableThing())) {
+		if (layoutable.isSame(currentLayoutableThing)) {
 			applyCustomBankTagItemPositions();
 		}
 	}
@@ -819,10 +833,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				.option("Yes", () ->
 						clientThread.invoke(() ->
 						{
-							configManager.setConfiguration(CONFIG_GROUP, LAYOUT_CONFIG_KEY_PREFIX + bankTagName, LAYOUT_EXPLICITLY_DISABLED);
-							if (tabInterface.getActiveTab() != null && bankTagName.equals(tabInterface.getActiveTab().getTag())) {
-								bankSearch.layoutBank();
-							}
+							LayoutableThing layoutable = bankTagLayoutableThing(bankTagName);
+							layoutable.disableLayout();
+							bankSearch.layoutBank();
 						})
 				)
 				.option("No", Runnables::doNothing)
@@ -836,16 +849,15 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private void applyCustomBankTagItemPositions(boolean setScroll) {
 		fakeItems.clear();
 
-		LayoutableThing layoutable = getCurrentLayoutableThing();
-		if (layoutable == null) {
+		if (currentLayoutableThing == null) {
 			return;
 		}
 
-		log.debug("applyCustomBankTagItemPositions: " + layoutable);
+		log.debug("applyCustomBankTagItemPositions: " + currentLayoutableThing);
 
 		indexToWidget.clear();
 
-		Layout layout = getBankOrder(layoutable);
+		Layout layout = getBankOrder(currentLayoutableThing);
 		if (layout == null) {
 			return; // layout not enabled.
 		}
@@ -854,7 +866,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				.filter(bankItem -> !bankItem.isHidden() && bankItem.getItemId() >= 0)
 				.collect(Collectors.toList());
 
-		if (!hasLayoutEnabled(layoutable)) {
+		// TODO does this code ever run given the layout == null early return above?
+		if (!hasLayoutEnabled(currentLayoutableThing)) {
 			for (Widget bankItem : bankItems) {
 				bankItem.setOnDragCompleteListener((JavaScriptCallback) (ev) -> {
 					boolean tutorialShown = tutorialMessage();
@@ -866,7 +879,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 
 		if (!isShowingPreview()) { // I don't want to clean layout items when displaying a preview. This could result in some layout placeholders being auto-removed due to not being in the tab.
-			cleanItemsNotInBankTag(layout, layoutable);
+			cleanItemsNotInBankTag(layout, currentLayoutableThing);
 		}
 
 		indexToWidget.putAll(assignItemPositions(layout, bankItems));
@@ -874,22 +887,28 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		updateFakeItems(layout);
 
 		for (Widget bankItem : bankItems) {
-			bankItem.setOnDragCompleteListener((JavaScriptCallback) (ev) -> customBankTagOrderInsert(layoutable, ev.getSource()));
+			bankItem.setOnDragCompleteListener((JavaScriptCallback) (ev) -> customBankTagOrderInsert(currentLayoutableThing, ev.getSource()));
 		}
 
 		setItemPositions(indexToWidget);
 
 		// Necessary as applyCustomBankTagItemPositions can be called after an item's layout position is changed. This doesn't fire BANKMAIN_BUILD, so our PreScriptFired subscriber doesn't change the scrollbar height, and the item's movement can change the height of the layout if it is moved below the last row or if it is the last item in the layout and is alone on its own row and was moved upwards.
-		int maxIndex = layout.getAllUsedIndexes().stream().max(Integer::compare).orElse(0);
-		int height = getYForIndex(maxIndex) + BANK_ITEM_HEIGHT + 8;
-		if (setScroll && layoutable.equals(lastLayoutable) && height != lastHeight)
+		int height = calculateViewportHeight(layout);
+		if (setScroll && height != lastHeight)
 		{
 			resizeBankContainerScrollbar(height, lastHeight);
 		}
 		lastHeight = height;
 
-		saveLayout(layoutable, layout);
-		log.debug("saved tag " + layoutable);
+		// The layout may have been modified when cleaning items or when assigning item widget positions.
+		saveLayout(currentLayoutableThing, layout);
+	}
+
+	private int calculateViewportHeight(Layout layout)
+	{
+		int maxIndex = layout.getAllUsedIndexes().stream().max(Integer::compare).orElse(0);
+		int height = getYForIndex(maxIndex) + BANK_ITEM_HEIGHT + 8;
+		return height;
 	}
 
 	/**
@@ -933,22 +952,13 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return fakeItems;
 	}
 
-	LayoutableThing getCurrentLayoutableThing() {
-		boolean isBankTag = tabInterface.isActive();
-		if (!isBankTag && !(inventorySetup != null && config.useWithInventorySetups())) {
-			return null;
-		}
-		String name = isBankTag ? tabInterface.getActiveTab().getTag() : inventorySetup;
-		return new LayoutableThing(name, isBankTag);
-	}
-
 	private void bankReorderWarning(ScriptEvent ev) {
 		if (
 				config.warnForAccidentalBankReorder()
 						&& ev.getSource().getId() == WidgetInfo.BANK_ITEM_CONTAINER.getId() && tabInterface.isActive()
 						&& client.getDraggedOnWidget() != null
 						&& client.getDraggedOnWidget().getId() == WidgetInfo.BANK_ITEM_CONTAINER.getId() && tabInterface.isActive()
-						&& !hasLayoutEnabled(getCurrentLayoutableThing())
+						&& !hasLayoutEnabled(currentLayoutableThing)
 						&& !Boolean.parseBoolean(configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, "preventTagTabDrags"))
 		) {
 			chatErrorMessage("You just reordered your actual bank!");
@@ -1018,7 +1028,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Override
 	public MouseEvent mousePressed(MouseEvent mouseEvent) {
 		mouseIsPressed = true;
-		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(getCurrentLayoutableThing()) || !config.showLayoutPlaceholders() || client.isMenuOpen()) return mouseEvent;
+		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(currentLayoutableThing) || !config.showLayoutPlaceholders() || client.isMenuOpen()) return mouseEvent;
 		if (isShowingPreview() && applyLayoutPreviewButton != null && applyLayoutPreviewButton.contains(client.getMouseCanvasPosition())) {
 			return mouseEvent;
 		}
@@ -1038,14 +1048,14 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Override
 	public MouseEvent mouseReleased(MouseEvent mouseEvent) {
 		mouseIsPressed = false;
-		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(getCurrentLayoutableThing())) return mouseEvent;
+		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(currentLayoutableThing)) return mouseEvent;
 		if (draggedItemIndex == -1) return mouseEvent;
 
 		if (config.showLayoutPlaceholders()) {
 			int draggedOnIndex = getIndexForMousePositionNoLowerLimit();
 			clientThread.invokeLater(() -> {
 				if (draggedOnIndex != -1 && antiDrag.mayDrag()) {
-					customBankTagOrderInsert(getCurrentLayoutableThing(), draggedItemIndex, draggedOnIndex);
+					customBankTagOrderInsert(currentLayoutableThing, draggedItemIndex, draggedOnIndex);
 				}
 				antiDrag.endDrag();
 				draggedItemIndex = -1;
@@ -1106,7 +1116,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				boolean movedItemWidget = moveDuplicateItem();
 				if (movedItemWidget)
 				{
-					updateFakeItems(getBankOrder(getCurrentLayoutableThing()));
+					updateFakeItems(getBankOrder(currentLayoutableThing));
 					setItemPositions(indexToWidget);
 				}
 			}
@@ -1123,7 +1133,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			String bankTagName = Text.removeTags(menuEntryAdded.getTarget()).replace("\u00a0"," ");
 
 			if ("Rename tag tab".equals(menuEntryAdded.getOption())) {
-				LayoutableThing layoutable = LayoutableThing.bankTag(bankTagName);
+				LayoutableThing layoutable = bankTagLayoutableThing(bankTagName);
 				if (hasLayoutEnabled(layoutable)) {
 					addEntry(bankTagName, EXPORT_LAYOUT);
 				}
@@ -1147,13 +1157,13 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	 */
 	private boolean moveDuplicateItem()
 	{
-		if (getCurrentLayoutableThing() == null)
+		if (currentLayoutableThing == null)
 		{
 			return false;
 		}
 
 		int mousePositionIndex = getIndexForMousePosition();
-		Layout layout = getBankOrder(getCurrentLayoutableThing());
+		Layout layout = getBankOrder(currentLayoutableThing);
 		if (layout == null) return false;
 		int itemId = layout.getItemAtIndex(mousePositionIndex);
 
@@ -1189,9 +1199,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	{
 		if (config.shiftModifierForExtraBankItemOptions() && !client.isKeyPressed(KeyCode.KC_SHIFT)) return;
 
-		LayoutableThing layoutable = getCurrentLayoutableThing();
-		if (layoutable == null) return;
-		Layout layout = getBankOrder(layoutable);
+		if (currentLayoutableThing == null) return;
+		Layout layout = getBankOrder(currentLayoutableThing);
 		if (layout == null) return;
 
 		int index = getIndexForMousePosition(true);
@@ -1234,7 +1243,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private void addFakeItemMenuEntries(MenuEntryAdded menuEntryAdded) {
 		if (!menuEntryAdded.getOption().equalsIgnoreCase("cancel")) return;
 
-		LayoutableThing currentLayoutableThing = getCurrentLayoutableThing();
 		if (!config.showLayoutPlaceholders() || !hasLayoutEnabled(currentLayoutableThing)) {
 			return;
 		}
@@ -1347,7 +1355,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (menuOption.startsWith(REMOVE_FROM_LAYOUT_MENU_OPTION)) {
 			removeFromLayout(event.getActionParam());
 		} else if (ENABLE_LAYOUT.equals(menuOption)) {
-			enableLayout(LayoutableThing.bankTag(menuTarget));
+			enableLayout(bankTagLayoutableThing(menuTarget));
 		} else if (DISABLE_LAYOUT.equals(menuOption)) {
 			disableLayout(menuTarget);
 		} else if (EXPORT_LAYOUT.equals(menuOption)) {
@@ -1368,10 +1376,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private void removeFromLayout(int index)
 	{
-		LayoutableThing layoutable = getCurrentLayoutableThing();
-		Layout layout = getBankOrder(layoutable);
+		Layout layout = getBankOrder(currentLayoutableThing);
 		layout.clearIndex(index);
-		saveLayout(layoutable, layout);
+		saveLayout(currentLayoutableThing, layout);
 
 		applyCustomBankTagItemPositions();
 	}
@@ -1379,11 +1386,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@VisibleForTesting
 	void duplicateItem(int clickedItemIndex)
 	{
-		LayoutableThing layoutable = getCurrentLayoutableThing();
-		Layout layout = getBankOrder(layoutable);
+		Layout layout = getBankOrder(currentLayoutableThing);
 
 		layout.duplicateItem(clickedItemIndex, getIdForIndexInRealBank(clickedItemIndex));
-		saveLayout(layoutable, layout);
+		saveLayout(currentLayoutableThing, layout);
 
 		applyCustomBankTagItemPositions();
 	}
@@ -1548,33 +1554,12 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return previewLayout;
 		}
 
-		return getBankOrderNonPreview(layoutable);
-	}
-
-	/**
-	 * unlike getBankOrder, this will not return a preview layout when one is currently being show.
-	 */
-	private Layout getBankOrderNonPreview(LayoutableThing layoutable) {
-		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
-		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return null;
-		if (configuration == null) {
-			if (layoutable.isBankTab() && !config.layoutEnabledByDefault() || layoutable.isInventorySetup() && !config.useWithInventorySetups()) {
-				return null;
-			} else if (layoutable.isInventorySetup()) {
-				// Inventory setups by default have an equipment and inventory order, so lay it out automatically if this
-				// is the first time viewing the setup with bank tag layouts.
-				InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(layoutable.name);
-				return layoutGenerator.basicInventorySetupsLayout(inventorySetup, Layout.emptyLayout(), getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
-			}
-
-			configuration = "";
-		}
-		return Layout.fromString(configuration, true);
+		return layoutable.getLayout();
 	}
 
 	private void exportLayout(String tagName) {
 		String exportString = BANK_TAG_STRING_PREFIX + tagName;
-		String layout = getBankOrder(LayoutableThing.bankTag(tagName)).toString();
+		String layout = getBankOrder(bankTagLayoutableThing(tagName)).toString();
 		if (!layout.isEmpty()) {
 			exportString += ",";
 		}
@@ -1649,20 +1634,26 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 	}
 
+	public LayoutableThing bankTagLayoutableThing(String tagName) {
+		return getLayoutableThing(tagName, true);
+	}
+
+	public LayoutableThing inventorySetupLayoutableThing(String inventorySetupName) {
+		return getLayoutableThing(inventorySetupName, false);
+	}
+
+	public LayoutableThing getLayoutableThing(String name, boolean isBankTag) {
+		return (currentLayoutableThing != null && currentLayoutableThing.isSame(name, isBankTag))
+			? currentLayoutableThing
+			: new LayoutableThing(name, isBankTag);
+	}
+
 	@RequiredArgsConstructor
 	@EqualsAndHashCode
-	static final class LayoutableThing {
+	final class LayoutableThing {
 		public final String name;
 		/** false means it's an inventory setup. */
 		public final boolean isBankTab;
-
-		public static LayoutableThing bankTag(String tagName) {
-			return new LayoutableThing(tagName, true);
-		}
-
-		public static LayoutableThing inventorySetup(String inventorySetupName) {
-			return new LayoutableThing(inventorySetupName, false);
-		}
 
 		@Override
 		public String toString() {
@@ -1677,7 +1668,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			}
 		}
 
-		static String escapeColonCharactersInInventorySetupName(String s)
+		String escapeColonCharactersInInventorySetupName(String s)
 		{
 			return s.replaceAll("&", "&amp;").replaceAll(":", "&#58;");
 		}
@@ -1689,6 +1680,70 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		public boolean isInventorySetup() {
 			return !isBankTab;
 		}
+
+		// null indicates that the value hasn't been initialized.
+		// enabled takes priority over what the value of layout is - if enabled is false, the layoutablething will never return a non-null layout.
+		private Layout layout = null;
+		private Boolean enabled = null;
+
+		public Layout getLayout() {
+			if (!isLayoutEnabled()) return null;
+			if (layout != null) return layout;
+
+			String configuration = configManager.getConfiguration(CONFIG_GROUP, configKey());
+			if (configuration == null) {
+				if (isInventorySetup()) {
+					// Inventory setups by default have an equipment and inventory order, so lay it out automatically if this
+					// is the first time viewing the setup with bank tag layouts.
+					InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(name);
+					return layoutGenerator.basicInventorySetupsLayout(inventorySetup, Layout.emptyLayout());
+				} else {
+					configuration = "";
+				}
+			}
+			layout = Layout.fromString(configuration, true);
+			return layout;
+		}
+
+		public void setLayout(Layout layout)
+		{
+			configManager.setConfiguration(CONFIG_GROUP, configKey(), layout.toString());
+			this.layout = layout;
+			this.enabled = true;
+			log.debug("saved layout %s, %s", this, layout);
+		}
+
+		public boolean isLayoutEnabled()
+		{
+			if (enabled != null) return enabled;
+
+			String configuration = configManager.getConfiguration(CONFIG_GROUP, configKey());
+			if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) {
+				enabled = false;
+			} else {
+				enabled = configuration != null || (isBankTab() && config.layoutEnabledByDefault()) || (isInventorySetup() && config.useWithInventorySetups());
+			}
+
+			return enabled;
+		}
+
+		public boolean isSame(LayoutableThing layoutable)
+		{
+			if (layoutable == null) return false;
+			return isSame(layoutable.name, layoutable.isBankTab);
+		}
+
+		public boolean isSame(String name, boolean isBankTag)
+		{
+			return this.name.equals(name) && this.isBankTab == isBankTag;
+		}
+
+		public void disableLayout()
+		{
+			configManager.setConfiguration(CONFIG_GROUP, configKey(), LAYOUT_EXPLICITLY_DISABLED);
+			layout = null;
+			enabled = false;
+		}
 	}
 
 	private void resizeBankContainerScrollbar(int height, int lastHeight) {
@@ -1696,6 +1751,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		container.setScrollHeight(height); // This change requires the script below to run to take effect.
 
+		// An increase in height here indicates that the user has just dragged an item below the current bank viewport,
+		// triggering the layout to be rebuilt. Scroll the viewport down to show the item's new position.
 		int itemContainerScroll = (height > lastHeight) ? height : container.getScrollY();
 
 		clientThread.invokeLater(() ->
@@ -1782,7 +1839,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		// Returning early or nulling the drag release listener has no effect. Hence, we need to
 		// null the draggedOnWidget instead.
-		if (draggedWidget.getId() == WidgetInfo.BANK_ITEM_CONTAINER.getId() && hasLayoutEnabled(getCurrentLayoutableThing())) {
+		if (draggedWidget.getId() == WidgetInfo.BANK_ITEM_CONTAINER.getId() && hasLayoutEnabled(currentLayoutableThing)) {
 			client.setDraggedOnWidget(null);
 		}
 	}

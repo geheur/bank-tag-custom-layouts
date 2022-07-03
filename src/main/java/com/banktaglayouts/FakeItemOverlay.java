@@ -1,5 +1,6 @@
 package com.banktaglayouts;
 
+import com.banktaglayouts.BankTagLayoutsPlugin.LayoutableThing;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Point;
@@ -46,7 +47,7 @@ public class FakeItemOverlay extends Overlay {
     @Override
     public Dimension render(Graphics2D graphics)
     {
-        BankTagLayoutsPlugin.LayoutableThing currentLayoutableThing = plugin.getCurrentLayoutableThing();
+        LayoutableThing currentLayoutableThing = plugin.getCurrentLayoutableThing();
         if (currentLayoutableThing == null) return null;
 
         Layout layout = plugin.getBankOrder(currentLayoutableThing);

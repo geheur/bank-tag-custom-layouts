@@ -20,6 +20,10 @@ import net.runelite.client.game.ItemVariationMapping;
 public class LayoutGenerator {
 	private final BankTagLayoutsPlugin plugin;
 
+	public Layout generateLayout(List<Integer> equippedItems, List<Integer> inventory, List<Integer> runePouch, List<Integer> additionalItems, Layout currentLayout, BankTagLayoutsConfig.LayoutStyles layoutStyle) {
+		return generateLayout(equippedItems, inventory, runePouch, additionalItems, currentLayout, getAutoLayoutDuplicateLimit(), layoutStyle);
+	}
+
 	public Layout generateLayout(List<Integer> equippedItems, List<Integer> inventory, List<Integer> runePouch, List<Integer> additionalItems, Layout currentLayout, int duplicateLimit, BankTagLayoutsConfig.LayoutStyles layoutStyle) {
 		equippedItems = equippedItems.stream()
 			.map(itemId -> plugin.itemManager.canonicalize(itemId)) // Weight reducing items have different ids when equipped; this fixes that.
@@ -35,12 +39,16 @@ public class LayoutGenerator {
 		}
 	}
 
-	public Layout basicInventorySetupsLayout(InventorySetup inventorySetup, Layout currentLayout, int duplicateLimit, BankTagLayoutsConfig.LayoutStyles layoutStyle) {
+	private int getAutoLayoutDuplicateLimit() {
+		return !plugin.config.autoLayoutDuplicatesEnabled() ? 0 : plugin.config.autoLayoutDuplicateLimit();
+	}
+
+	public Layout basicInventorySetupsLayout(InventorySetup inventorySetup, Layout currentLayout) {
 		List<Integer> equippedGear = inventorySetup.getEquipment() == null ? Collections.emptyList() : inventorySetup.getEquipment().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
 		List<Integer> inventory = inventorySetup.getInventory() == null ? Collections.emptyList() : inventorySetup.getInventory().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
 		List<Integer> runePouchRunes = inventorySetup.getRune_pouch() == null ? Collections.emptyList() : inventorySetup.getRune_pouch().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
 		List<Integer> additionalItems = inventorySetup.getAdditionalFilteredItems() == null ? Collections.emptyList() : inventorySetup.getAdditionalFilteredItems().values().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
-		return generateLayout(equippedGear, inventory, runePouchRunes, additionalItems, currentLayout, duplicateLimit, layoutStyle);
+		return generateLayout(equippedGear, inventory, runePouchRunes, additionalItems, currentLayout, getAutoLayoutDuplicateLimit(), plugin.config.autoLayoutStyle());
 	}
 
 	public Layout presetsLayout(List<Integer> equippedItems, List<Integer> inventory, List<Integer> runePouch, List<Integer> additionalItems, Layout currentLayout) {
