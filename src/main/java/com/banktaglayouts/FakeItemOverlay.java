@@ -9,9 +9,7 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.tooltip.Tooltip;
 import net.runelite.client.ui.overlay.tooltip.TooltipManager;
-import net.runelite.client.util.ColorUtil;
 
 import javax.inject.Inject;
 import java.awt.*;
@@ -41,8 +39,6 @@ public class FakeItemOverlay extends Overlay {
         setPosition(OverlayPosition.DYNAMIC);
     }
 
-    private Tooltip tooltip = null;
-
     @Override
     public Dimension render(Graphics2D graphics)
     {
@@ -51,8 +47,6 @@ public class FakeItemOverlay extends Overlay {
 
         Layout layout = plugin.getBankOrder(currentLayoutableThing);
         if (layout == null) return null;
-
-        if (config.showLayoutPlaceholders() && log.isDebugEnabled()) updateTooltip(layout);
 
         Widget bankItemContainer = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER);
         if (bankItemContainer == null) return null;
@@ -108,24 +102,5 @@ public class FakeItemOverlay extends Overlay {
 		}
 
         return null;
-    }
-
-    private void updateTooltip(Layout layout) {
-        tooltipManager.getTooltips().remove(tooltip);
-        tooltip = null;
-
-        int index = plugin.getIndexForMousePosition(true);
-        if (!log.isDebugEnabled() && plugin.fakeItems.stream().noneMatch(fakeItem -> fakeItem.index == index)) return;
-
-        if (index != -1) {
-            int itemIdForTooltip = layout.getItemAtIndex(index);
-            if (itemIdForTooltip != -1 && tooltip == null) {
-                String tooltipString = ColorUtil.wrapWithColorTag(plugin.itemName(itemIdForTooltip), BankTagLayoutsPlugin.itemTooltipColor);
-                if (log.isDebugEnabled())
-                    tooltipString += " (" + itemIdForTooltip + (plugin.isPlaceholder(itemIdForTooltip) ? ", ph" : "") + ")";
-                tooltip = new Tooltip(tooltipString);
-                tooltipManager.add(tooltip);
-            }
-        }
     }
 }

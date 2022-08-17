@@ -334,7 +334,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 	}
 
-	private void checkVersionUpgrade() {
+	void checkVersionUpgrade() {
 		try (InputStream is = BankTagLayoutsPlugin.class.getResourceAsStream("/version.txt"))
 		{
 			Properties props = new Properties();
@@ -397,30 +397,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	BankTagLayoutsConfig getConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(BankTagLayoutsConfig.class);
-	}
-
-	@Subscribe
-	public void onCommandExecuted(CommandExecuted commandExecuted) {
-		if (!log.isDebugEnabled()) return;
-
-		if ("clearversion".equals(commandExecuted.getCommand())) {
-			configManager.unsetConfiguration(CONFIG_GROUP, "version");
-			System.out.println("cleared version number.");
-		}
-		if ("checkversion".equals(commandExecuted.getCommand())) {
-			System.out.println("checking version number");
-			checkVersionUpgrade();
-		}
-
-		if ("itemname".equals(commandExecuted.getCommand())) {
-			String[] arguments = commandExecuted.getArguments();
-			client.addChatMessage(ChatMessageType.PUBLICCHAT, "Item name of " + arguments[0], itemName(Integer.valueOf(arguments[0])), "bla");
-		}
-		if ("placeholder".equals(commandExecuted.getCommand())) {
-			String[] arguments = commandExecuted.getArguments();
-			int itemId = Integer.parseInt(arguments[0]);
-			client.addChatMessage(ChatMessageType.PUBLICCHAT, "" + itemId, itemName(itemId) + " is a " + isPlaceholder(itemId) + " and it's reversed id is " + switchPlaceholderId(itemId) + " and again " + switchPlaceholderId(switchPlaceholderId(itemId)), "bla");
-		}
 	}
 
 	private void applyLayoutPreview() {
