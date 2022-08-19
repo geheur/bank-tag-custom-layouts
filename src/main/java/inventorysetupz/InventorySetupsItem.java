@@ -22,70 +22,46 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package com.banktaglayouts.invsetupsstuff;
+package inventorysetupz;
 
-import java.util.ArrayList;
-import java.util.Collections;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
 
-public enum InventorySetupsStackCompareID
+@AllArgsConstructor
+public class InventorySetupsItem
 {
-	// Don't highlight at all
-	None(0),
+	@Getter
+	private final int id;
+	@Getter
+	@Setter
+	private String name;
+	@Getter
+	private final int quantity;
+	@Getter
+	@Setter
+	private boolean fuzzy;
+	@Getter
+	@Setter
+	private InventorySetupsStackCompareID stackCompare;
 
-	// Only highlight if stacks are equal
-	Standard(1),
-
-	// Only highlight if stack is less than what is in the setup
-	Less_Than(2),
-
-	// Only highlight if stack is greater than what is in the setup
-	Greater_Than(3);
-
-	private final int type;
-
-	private static final ArrayList<InventorySetupsStackCompareID> VALUES;
-
-	static
+	public void toggleIsFuzzy()
 	{
-		VALUES = new ArrayList<>();
-		Collections.addAll(VALUES, InventorySetupsStackCompareID.values());
+		fuzzy = !fuzzy;
 	}
 
-	InventorySetupsStackCompareID(int type)
+	public static InventorySetupsItem getDummyItem()
 	{
-		this.type = type;
+		return new InventorySetupsItem(-1, "", 0, false, InventorySetupsStackCompareID.None);
 	}
 
-	public int getType()
+	public static boolean itemIsDummy(final InventorySetupsItem item)
 	{
-		return type;
-	}
-
-	public static ArrayList<InventorySetupsStackCompareID> getValues()
-	{
-		return VALUES;
-	}
-
-	public static String getStringFromValue(final InventorySetupsStackCompareID stackCompare)
-	{
-		if (stackCompare == null)
-		{
-			return "";
-		}
-
-		switch (stackCompare)
-		{
-			case None:
-				return "";
-			case Standard:
-				return "!=";
-			case Less_Than:
-				return "<";
-			case Greater_Than:
-				return ">";
-		}
-
-		return "";
+		// Don't use the name to compare
+		return item.getId() == -1 &&
+				item.getQuantity() == 0 &&
+				!item.isFuzzy() &&
+				(item.getStackCompare() == InventorySetupsStackCompareID.None || item.getStackCompare() == null);
 	}
 
 }

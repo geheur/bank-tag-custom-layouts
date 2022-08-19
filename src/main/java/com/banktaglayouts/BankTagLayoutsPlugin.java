@@ -1,6 +1,5 @@
 package com.banktaglayouts;
 
-import com.banktaglayouts.invsetupsstuff.InventorySetup;
 import com.banktaglayouts.invsetupsstuff.InventorySetupsAdapter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
@@ -9,6 +8,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.Runnables;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import inventorysetupz.InventorySetup;
 import java.awt.Color;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
@@ -58,7 +58,6 @@ import net.runelite.api.ScriptEvent;
 import net.runelite.api.ScriptID;
 import net.runelite.api.Varbits;
 import net.runelite.api.events.ClientTick;
-import net.runelite.api.events.CommandExecuted;
 import net.runelite.api.events.DraggingWidgetChanged;
 import net.runelite.api.events.FocusChanged;
 import net.runelite.api.events.GameStateChanged;

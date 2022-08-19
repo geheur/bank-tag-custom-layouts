@@ -22,30 +22,32 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package com.banktaglayouts.invsetupsstuff;
+package inventorysetupz;
 
+import java.awt.Color;
+import java.util.List;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.awt.*;
-import java.util.ArrayList;
-import java.util.HashMap;
-
 @AllArgsConstructor
-public class InventorySetup
+public class InventorySetup /*implements InventorySetupsDisplayAttributes*/
 {
 	@Getter
-	private ArrayList<InventorySetupsItem> inventory;
+	private List<InventorySetupsItem> inventory;
 
 	@Getter
-	private ArrayList<InventorySetupsItem> equipment;
+	private List<InventorySetupsItem> equipment;
 
 	@Getter
-	private ArrayList<InventorySetupsItem> rune_pouch;
+	private List<InventorySetupsItem> rune_pouch;
 
 	@Getter
-	private HashMap<Integer, InventorySetupsItem> additionalFilteredItems;
+	private List<InventorySetupsItem> boltPouch;
+
+	@Getter
+	private Map<Integer, InventorySetupsItem> additionalFilteredItems;
 
 	@Getter
 	@Setter
@@ -62,6 +64,10 @@ public class InventorySetup
 	@Getter
 	@Setter
 	private boolean highlightDifference;
+
+	@Getter
+	@Setter
+	private Color displayColor;
 
 	@Getter
 	@Setter
@@ -84,22 +90,35 @@ public class InventorySetup
 	@Setter
 	private int spellBook;
 
-	public void updateInventory(final ArrayList<InventorySetupsItem> inv)
+	@Getter
+	@Setter
+	private boolean favorite;
+
+	@Getter
+	@Setter
+	private int iconID;
+
+	public void updateInventory(final List<InventorySetupsItem> inv)
 	{
 		inventory = inv;
 	}
 
-	public void updateEquipment(final ArrayList<InventorySetupsItem> eqp)
+	public void updateEquipment(final List<InventorySetupsItem> eqp)
 	{
 		equipment = eqp;
 	}
 
-	public void updateRunePouch(final ArrayList<InventorySetupsItem> rp)
+	public void updateRunePouch(final List<InventorySetupsItem> rp)
 	{
 		rune_pouch = rp;
 	}
 
-	public void updateAdditionalItems(final HashMap<Integer, InventorySetupsItem> ai)
+	public void updateBoltPouch(final List<InventorySetupsItem> bp)
+	{
+		boltPouch = bp;
+	}
+
+	public void updateAdditionalItems(final Map<Integer, InventorySetupsItem> ai)
 	{
 		additionalFilteredItems = ai;
 	}

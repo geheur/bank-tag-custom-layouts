@@ -1,10 +1,9 @@
 package com.banktaglayouts;
 
-import com.banktaglayouts.invsetupsstuff.InventorySetup;
-
+import inventorysetupz.InventorySetup;
+import inventorysetupz.InventorySetupsItem;
 import java.util.*;
 
-import com.banktaglayouts.invsetupsstuff.InventorySetupsItem;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
