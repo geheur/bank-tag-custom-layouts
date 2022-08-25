@@ -26,7 +26,7 @@ public class LayoutGenerator {
 
 		switch (layoutStyle){
 			case ZIGZAG:
-				return zigzagLayout(equippedItems, inventory, Collections.emptyList(), additionalItems, currentLayout, duplicateLimit);
+				return zigzagLayout(equippedItems, inventory, runePouch, additionalItems, currentLayout, duplicateLimit);
 			case PRESETS:
 				return presetsLayout(equippedItems, inventory, runePouch, additionalItems, currentLayout);
 			default:

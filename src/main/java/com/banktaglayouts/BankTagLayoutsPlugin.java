@@ -43,6 +43,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.EnumComposition;
 import net.runelite.api.GameState;
 import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
@@ -80,7 +81,6 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemVariationMapping;
-import net.runelite.client.game.RunepouchRune;
 import net.runelite.client.game.SpriteManager;
 import net.runelite.client.game.chatbox.ChatboxPanelManager;
 import net.runelite.client.input.KeyManager;
@@ -176,10 +176,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
 	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
-
-	// Copied from the rune pouch plugin
-	private static final int[] AMOUNT_VARBITS = {Varbits.RUNE_POUCH_AMOUNT1, Varbits.RUNE_POUCH_AMOUNT2, Varbits.RUNE_POUCH_AMOUNT3};
-	private static final int[] RUNE_VARBITS = {Varbits.RUNE_POUCH_RUNE1, Varbits.RUNE_POUCH_RUNE2, Varbits.RUNE_POUCH_RUNE3};
 
 	private Widget showLayoutPreviewButton = null;
 	private Widget applyLayoutPreviewButton = null;
@@ -459,7 +455,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			Layout currentLayout = getBankOrderNonPreview(currentLayoutableThing);
 			if (currentLayout == null) currentLayout = Layout.emptyLayout();
 
-			previewLayout = layoutGenerator.generateLayout(equippedGear, inventory, getRunePouchContents(), Collections.emptyList(), currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
+			previewLayout = layoutGenerator.generateLayout(equippedGear, inventory, getRunePouchRunes(), Collections.emptyList(), currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
 		} else {
 			InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(currentLayoutableThing.name);
 
@@ -534,19 +530,20 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		sawMenuEntryAddedThisClientTick = false;
 	}
 
-	private List<Integer> getRunePouchContents() {
-		List<Integer> runes = new ArrayList<>(0);
+	private static final int[] AMOUNT_VARBITS = {Varbits.RUNE_POUCH_AMOUNT1, Varbits.RUNE_POUCH_AMOUNT2, Varbits.RUNE_POUCH_AMOUNT3, Varbits.RUNE_POUCH_AMOUNT4};
+	private static final int[] RUNE_VARBITS = {Varbits.RUNE_POUCH_RUNE1, Varbits.RUNE_POUCH_RUNE2, Varbits.RUNE_POUCH_RUNE3, Varbits.RUNE_POUCH_RUNE4};
+	private List<Integer> getRunePouchRunes() {
+		List<Integer> runes = new ArrayList<>(AMOUNT_VARBITS.length);
+		EnumComposition runepouchEnum = client.getEnum(982/*EnumID.RUNEPOUCH_RUNE*/); // TODO change when this constant exists.
 		for (int i = 0; i < AMOUNT_VARBITS.length; i++)
 		{
-			int amount = client.getVar(AMOUNT_VARBITS[i]);
+			int amount = client.getVarbitValue(AMOUNT_VARBITS[i]);
 			if (amount <= 0) {
 				continue;
 			}
-			int runeId = client.getVar(RUNE_VARBITS[i]);
-			RunepouchRune rune = RunepouchRune.getRune(runeId);
-			if (rune != null) {
-				runes.add(rune.getItemId());
-			}
+			int runeId = client.getVarbitValue(RUNE_VARBITS[i]);
+			int runeItemId = runepouchEnum.getIntValue(runeId);
+			runes.add(runeItemId);
 		}
 		return runes;
 	}
