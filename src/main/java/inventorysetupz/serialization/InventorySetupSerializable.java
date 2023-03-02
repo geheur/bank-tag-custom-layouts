@@ -1,5 +1,6 @@
 package inventorysetupz.serialization;
 
+import com.google.common.base.Strings;
 import inventorysetupz.InventorySetup;
 import inventorysetupz.InventorySetupsItem;
 import lombok.Value;
@@ -61,7 +62,7 @@ public class InventorySetupSerializable
 		}
 
 		String name = inventorySetup.getName();
-		String notes = !inventorySetup.getNotes().isEmpty() ? inventorySetup.getNotes() : null;
+		String notes = !Strings.isNullOrEmpty(inventorySetup.getNotes()) ? inventorySetup.getNotes() : null;
 		Color hc = inventorySetup.getHighlightColor();
 		Boolean hd = inventorySetup.isHighlightDifference() ? Boolean.TRUE : null;
 		Color dc = inventorySetup.getDisplayColor();
