@@ -19,6 +19,14 @@ import net.runelite.client.game.ItemVariationMapping;
 public class LayoutGenerator {
 	private final BankTagLayoutsPlugin plugin;
 
+	public Layout basicBankTagLayout(List<Integer> equippedItems, List<Integer> inventory, List<Integer> runePouch, List<Integer> additionalItems, Layout currentLayout, int duplicateLimit, BankTagLayoutsConfig.LayoutStyles layoutStyle) {
+		Collection<Integer> runePouchVariations = ItemVariationMapping.getVariations(ItemID.RUNE_POUCH);
+		Collection<Integer> divineRunePouchVariations = ItemVariationMapping.getVariations(ItemID.DIVINE_RUNE_POUCH);
+		boolean hasRunePouch = inventory.stream().filter(itemId -> runePouchVariations.contains(itemId) || divineRunePouchVariations.contains(itemId)).findAny().isPresent();
+		if (!hasRunePouch) runePouch.clear();
+		return generateLayout(equippedItems, inventory, runePouch, additionalItems, currentLayout, duplicateLimit, layoutStyle);
+	}
+
 	public Layout generateLayout(List<Integer> equippedItems, List<Integer> inventory, List<Integer> runePouch, List<Integer> additionalItems, Layout currentLayout, int duplicateLimit, BankTagLayoutsConfig.LayoutStyles layoutStyle) {
 		equippedItems = equippedItems.stream()
 			.map(itemId -> plugin.itemManager.canonicalize(itemId)) // Weight reducing items have different ids when equipped; this fixes that.

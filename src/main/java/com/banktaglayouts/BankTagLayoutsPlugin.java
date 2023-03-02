@@ -455,7 +455,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			Layout currentLayout = getBankOrderNonPreview(currentLayoutableThing);
 			if (currentLayout == null) currentLayout = Layout.emptyLayout();
 
-			previewLayout = layoutGenerator.generateLayout(equippedGear, inventory, getRunePouchRunes(), Collections.emptyList(), currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
+			previewLayout = layoutGenerator.basicBankTagLayout(equippedGear, inventory, getRunePouchRunes(), Collections.emptyList(), currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
 		} else {
 			InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(currentLayoutableThing.name);
 
