@@ -44,6 +44,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
+import net.runelite.api.EnumID;
 import net.runelite.api.GameState;
 import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
@@ -534,7 +535,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private static final int[] RUNE_VARBITS = {Varbits.RUNE_POUCH_RUNE1, Varbits.RUNE_POUCH_RUNE2, Varbits.RUNE_POUCH_RUNE3, Varbits.RUNE_POUCH_RUNE4};
 	private List<Integer> getRunePouchRunes() {
 		List<Integer> runes = new ArrayList<>(AMOUNT_VARBITS.length);
-		EnumComposition runepouchEnum = client.getEnum(982/*EnumID.RUNEPOUCH_RUNE*/); // TODO change when this constant exists.
+		EnumComposition runepouchEnum = client.getEnum(EnumID.RUNEPOUCH_RUNE);
 		for (int i = 0; i < AMOUNT_VARBITS.length; i++)
 		{
 			int amount = client.getVarbitValue(AMOUNT_VARBITS[i]);
