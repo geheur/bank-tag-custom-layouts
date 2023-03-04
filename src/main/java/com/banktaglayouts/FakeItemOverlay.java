@@ -24,9 +24,6 @@ public class FakeItemOverlay extends Overlay {
     private ItemManager itemManager;
 
     @Inject
-    private TooltipManager tooltipManager;
-
-    @Inject
     private BankTagLayoutsPlugin plugin;
 
     @Inject
