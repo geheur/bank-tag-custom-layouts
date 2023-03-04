@@ -632,7 +632,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		if (!clipboardData.startsWith(BANK_TAG_STRING_PREFIX)) {
 			// TODO try to import the tag as a normal tag?.
-			chatErrorMessage("import failed: Invalid format. layout-ed tag data starts with \"" + BANK_TAG_STRING_PREFIX + "\"; did you copy the wrong thing?");
+			if (Pattern.compile("[^,]+,\\d+(,[\\d-]+)*").matcher(clipboardData).matches()) {
+				chatErrorMessage("import failed: This looks like a regular bank tag, try using \"Import tag tab\" instead of \"" + IMPORT_LAYOUT + "\".");
+			} else {
+				chatErrorMessage("import failed: Invalid format. layout-ed tag data starts with \"" + BANK_TAG_STRING_PREFIX + "\"; did you copy the wrong thing?");
+			}
 			return;
 		}
 
