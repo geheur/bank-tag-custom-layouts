@@ -761,6 +761,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		copyPaste.setIcon(name, icon);
 
+		tagManager.removeTag(name);
 		while (dataIter.hasNext()) {
 			int itemId = Integer.parseInt(dataIter.next());
 			tagManager.addTag(itemId, name, itemId < 0);
