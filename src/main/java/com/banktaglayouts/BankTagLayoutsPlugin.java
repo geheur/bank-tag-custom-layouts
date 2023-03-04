@@ -626,23 +626,23 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 					.toString()
 					.trim();
 		} catch (UnsupportedFlavorException | IOException e) {
-			chatErrorMessage("import failed: couldn't get an import string from the clipboard");
+			chatErrorMessage("import failed:", " couldn't get an import string from the clipboard");
 			return;
 		}
 
 		if (!clipboardData.startsWith(BANK_TAG_STRING_PREFIX)) {
 			// TODO try to import the tag as a normal tag?.
 			if (Pattern.compile("[^,]+,\\d+(,[\\d-]+)*").matcher(clipboardData).matches()) {
-				chatErrorMessage("import failed: This looks like a regular bank tag, try using \"Import tag tab\" instead of \"" + IMPORT_LAYOUT + "\".");
+				chatErrorMessage("import failed:", " This looks like a regular bank tag, try using \"Import tag tab\" instead of \"" + IMPORT_LAYOUT + "\".");
 			} else {
-				chatErrorMessage("import failed: Invalid format. layout-ed tag data starts with \"" + BANK_TAG_STRING_PREFIX + "\"; did you copy the wrong thing?");
+				chatErrorMessage("import failed:", " Invalid format. layout-ed tag data starts with \"" + BANK_TAG_STRING_PREFIX + "\"; did you copy the wrong thing?");
 			}
 			return;
 		}
 
 		String[] split = clipboardData.split(",banktag:");
 		if (split.length != 2) {
-			chatErrorMessage("import failed: invalid format. layout string doesn't include regular bank tag data (It should say \"banktag:\" somewhere in the import string). Maybe you didn't copy the whole thing?");
+			chatErrorMessage("import failed:", " invalid format. layout string doesn't include regular bank tag data (It should say \"banktag:\" somewhere in the import string). Maybe you didn't copy the whole thing?");
 			return;
 		}
 
@@ -666,7 +666,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		try {
 			layout = Layout.fromString(layoutString);
 		} catch (NumberFormatException e) {
-			chatErrorMessage("import failed: something in the layout data is not a number");
+			chatErrorMessage("import failed:", " something in the layout data is not a number");
 			return;
 		}
 		String tagString = split[1];
@@ -681,7 +681,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 						clientThread.invokeLater(() -> { // If the option is selected by a key, this will not be on the client thread.
 							String newName = generateUniqueName(finalName);
 							if (newName == null) {
-								chatErrorMessage("import failed: couldn't find a unique name. do you literally have 100 similarly named tags???????????");
+								chatErrorMessage("import failed:", " couldn't find a unique name. do you literally have 100 similarly named tags???????????");
 								return;
 							}
 							importLayout(newName, layout, tagString);
@@ -742,7 +742,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 
 		if (sb.length() == 0) {
-			chatErrorMessage("import failed: tag name does not contain any valid characters.");
+			chatErrorMessage("import failed:", " tag name does not contain any valid characters.");
 			return null;
 		}
 
@@ -1583,6 +1583,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private MessageNode chatErrorMessage(String message) {
 		return chatMessage(ColorUtil.wrapWithColorTag(message, Color.RED));
+	}
+
+	private MessageNode chatErrorMessage(String redMessage, String regularMessage) {
+		return chatMessage(ColorUtil.wrapWithColorTag(redMessage, Color.RED) + regularMessage);
 	}
 
 	private MessageNode chatMessage(String message) {
