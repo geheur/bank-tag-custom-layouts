@@ -128,10 +128,21 @@ public interface BankTagLayoutsConfig extends Config {
     }
 
 	@ConfigItem(
+		keyName = "autoLayoutIncludeRunePouchRunes",
+		name = "Include Rune Pouch Runes",
+		description = "Include the runes in the rune pouch when making the layout. In bank tag tabs, the runes will not be added to the tag, while in Inventory Setups they will just not be positioned.",
+		position = 4,
+		section = autoLayout
+	)
+	default boolean autoLayoutIncludeRunePouchRunes() {
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "showAutoLayoutButton",
 		name = "Auto Layout button",
 		description = "Disabling this hides the auto layout button and adds auto layout to the menu where you import tags.",
-		position = 4,
+		position = 5,
 		section = autoLayout
 	)
 	default boolean showAutoLayoutButton() {

@@ -455,14 +455,14 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			Layout currentLayout = getBankOrderNonPreview(currentLayoutableThing);
 			if (currentLayout == null) currentLayout = Layout.emptyLayout();
 
-			previewLayout = layoutGenerator.basicBankTagLayout(equippedGear, inventory, getRunePouchRunes(), Collections.emptyList(), currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
+			previewLayout = layoutGenerator.basicBankTagLayout(equippedGear, inventory, config.autoLayoutIncludeRunePouchRunes() ? getRunePouchRunes() : Collections.emptyList(), Collections.emptyList(), currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
 		} else {
 			InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(currentLayoutableThing.name);
 
 			Layout currentLayout = getBankOrderNonPreview(currentLayoutableThing);
 			if (currentLayout == null) currentLayout = Layout.emptyLayout();
 
-			previewLayout = layoutGenerator.basicInventorySetupsLayout(inventorySetup, currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
+			previewLayout = layoutGenerator.basicInventorySetupsLayout(inventorySetup, currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle(), config.autoLayoutIncludeRunePouchRunes());
 		}
 
 		hideLayoutPreviewButtons(false);
@@ -1538,7 +1538,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				// Inventory setups by default have an equipment and inventory order, so lay it out automatically if this
 				// is the first time viewing the setup with bank tag layouts.
 				InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(layoutable.name);
-				return layoutGenerator.basicInventorySetupsLayout(inventorySetup, Layout.emptyLayout(), getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
+				return layoutGenerator.basicInventorySetupsLayout(inventorySetup, Layout.emptyLayout(), getAutoLayoutDuplicateLimit(), config.autoLayoutStyle(), config.autoLayoutIncludeRunePouchRunes());
 			}
 
 			configuration = "";

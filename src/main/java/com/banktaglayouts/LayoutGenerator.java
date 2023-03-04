@@ -42,10 +42,10 @@ public class LayoutGenerator {
 		}
 	}
 
-	public Layout basicInventorySetupsLayout(InventorySetup inventorySetup, Layout currentLayout, int duplicateLimit, BankTagLayoutsConfig.LayoutStyles layoutStyle) {
+	public Layout basicInventorySetupsLayout(InventorySetup inventorySetup, Layout currentLayout, int duplicateLimit, BankTagLayoutsConfig.LayoutStyles layoutStyle, boolean includeRunepouchRunes) {
 		List<Integer> equippedGear = inventorySetup.getEquipment() == null ? Collections.emptyList() : inventorySetup.getEquipment().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
 		List<Integer> inventory = inventorySetup.getInventory() == null ? Collections.emptyList() : inventorySetup.getInventory().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
-		List<Integer> runePouchRunes = inventorySetup.getRune_pouch() == null ? Collections.emptyList() : inventorySetup.getRune_pouch().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
+		List<Integer> runePouchRunes = includeRunepouchRunes ? inventorySetup.getRune_pouch() == null ? Collections.emptyList() : inventorySetup.getRune_pouch().stream().map(InventorySetupsItem::getId).collect(Collectors.toList()) : Collections.emptyList();
 		List<Integer> additionalItems = inventorySetup.getAdditionalFilteredItems() == null ? Collections.emptyList() : inventorySetup.getAdditionalFilteredItems().values().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
 		return generateLayout(equippedGear, inventory, runePouchRunes, additionalItems, currentLayout, duplicateLimit, layoutStyle);
 	}
