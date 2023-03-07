@@ -747,7 +747,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return null;
 		}
 
-		return sb.toString();
+		return sb.toString().toLowerCase();
 	}
 
 	private UsedToBeReflection copyPaste = new UsedToBeReflection(this);
