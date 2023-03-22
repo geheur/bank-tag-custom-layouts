@@ -276,7 +276,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			if (client.getGameState() == GameState.LOGGED_IN) {
 				indexToWidget.clear();
 				cancelLayoutPreview();
-				showLayoutPreviewButton.setHidden(true);
+				if (showLayoutPreviewButton != null) showLayoutPreviewButton.setHidden(true);
 
 				bankSearch.layoutBank();
 			}
@@ -366,8 +366,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	private void handlePotentialTagRename(ConfigChanged event) {
-		Set<String> oldTags = new HashSet<>(Text.fromCSV(event.getOldValue()));
-		Set<String> newTags = new HashSet<>(Text.fromCSV(event.getNewValue()));
+		String oldValue = event.getOldValue();
+		String newValue = event.getNewValue();
+		Set<String> oldTags = new HashSet<>(Text.fromCSV(oldValue == null ? "" : oldValue));
+		Set<String> newTags = new HashSet<>(Text.fromCSV(newValue == null ? "" : newValue));
 		// Compute the diff between the two lists.
 		Iterator<String> iter = oldTags.iterator();
 		while (iter.hasNext()) {
