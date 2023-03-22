@@ -191,6 +191,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private void updateButton() {
 		if (showLayoutPreviewButton == null) {
 			Widget parent = client.getWidget(WidgetInfo.BANK_CONTENT_CONTAINER);
+			if (parent == null) return;
 			showLayoutPreviewButton = parent.createChild(-1, WidgetType.GRAPHIC);
 
 			showLayoutPreviewButton.setOriginalHeight(18);
