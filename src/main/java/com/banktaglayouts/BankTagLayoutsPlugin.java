@@ -366,6 +366,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	private void handlePotentialTagRename(ConfigChanged event) {
+		// Profile changes can look like tag renames sometimes, but we do not want to modify the config in that case
+		// because it can cause people to lose their data. Real renames come through on the client thread.
+		if (!client.isClientThread()) return;
+
 		String oldValue = event.getOldValue();
 		String newValue = event.getNewValue();
 		Set<String> oldTags = new HashSet<>(Text.fromCSV(oldValue == null ? "" : oldValue));
