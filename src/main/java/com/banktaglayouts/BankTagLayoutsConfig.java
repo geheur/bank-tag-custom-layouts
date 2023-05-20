@@ -94,6 +94,7 @@ public interface BankTagLayoutsConfig extends Config {
 	enum LayoutStyles {
 		ZIGZAG,
 		PRESETS,
+		REMOVE_LAYOUT,
 	}
 
 	@ConfigItem(

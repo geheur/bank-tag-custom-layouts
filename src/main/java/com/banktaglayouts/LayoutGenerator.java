@@ -37,6 +37,8 @@ public class LayoutGenerator {
 				return zigzagLayout(equippedItems, inventory, runePouch, additionalItems, currentLayout, duplicateLimit);
 			case PRESETS:
 				return presetsLayout(equippedItems, inventory, runePouch, additionalItems, currentLayout);
+			case REMOVE_LAYOUT:
+				return new Layout();
 			default:
 				throw new IllegalArgumentException("Please supply a layout style to this method.");
 		}
