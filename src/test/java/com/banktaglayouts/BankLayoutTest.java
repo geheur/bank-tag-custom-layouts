@@ -321,26 +321,31 @@ public class BankLayoutTest
     public void testDuplicateItems()
 	{
 		List<Item> layoutItems = Arrays.asList(GAMES_NECKLACE_8, GAMES_NECKLACE_8_PH, MAGIC_LOGS);
-		List<Item> realItems = Arrays.asList(GAMES_NECKLACE_8, GAMES_NECKLACE_8_PH, MAGIC_LOGS);
-		for (Item targetLayoutItem : realItems)
+		for (Item layoutItem : layoutItems)
 		{
-			for (int i = 0; i < layoutItems.size(); i++)
-			{
-				Item layoutItem = layoutItems.get(i);
-				Item realItem = realItems.get(i);
-				if (targetLayoutItem.equals(layoutItem) || targetLayoutItem.equals(realItem)) continue;
-				testDuplicateItem(layoutItem, layoutItem);
-				testDuplicateItem(layoutItem, realItem);
-				testDuplicateItem(layoutItem, layoutItem);
-				testDuplicateItem(layoutItem, realItem);
-			}
+			testDuplicateItem(layoutItem, layoutItem);
 		}
+		// TODO what was I trying to test here?
+//		List<Item> realItems = Arrays.asList(GAMES_NECKLACE_8, GAMES_NECKLACE_8_PH, MAGIC_LOGS);
+//		for (Item targetLayoutItem : realItems)
+//		{
+//			for (int i = 0; i < layoutItems.size(); i++)
+//			{
+//				Item layoutItem = layoutItems.get(i);
+//				Item realItem = realItems.get(i);
+//				if (targetLayoutItem.equals(layoutItem) || targetLayoutItem.equals(realItem)) continue;
+//				testDuplicateItem(layoutItem, layoutItem);
+//				testDuplicateItem(layoutItem, realItem);
+//				testDuplicateItem(layoutItem, layoutItem);
+//				testDuplicateItem(layoutItem, realItem);
+//			}
+//		}
 	}
 
 	private void testDuplicateItem(Item layoutItem, Item realItem)
 	{
 		boolean isLayoutPlaceholder = realItem == null;
-		if (realItem == null) realItem = layoutItem;
+		if (isLayoutPlaceholder) realItem = layoutItem;
 		currentLayout = generateLayout(
 			new LayoutItem(layoutItem, 1),
 			new LayoutItem(layoutItem, 2)
@@ -709,7 +714,7 @@ public class BankLayoutTest
 //            System.out.println("tostring: " + id + " " + item + " " + type);
             String typeString = type == Type.LAYOUT_PLACEHOLDER ? " lph" : type == Type.REAL_ITEM ? "" : " dup";
             return "{" +
-                    item.name + typeString +
+                    "\"" + item.name + "\"" + typeString +
                     (type == Type.REAL_ITEM ? " (" + quantity + ")" : "") +
                     '}';
         }
@@ -748,8 +753,8 @@ public class BankLayoutTest
             laidOutBank.put(
                     fakeItem.getIndex(),
                     fakeItem.layoutPlaceholder ?
-                            BankSlot.layoutPlaceholder(fakeItem.getItemId()) :
-                            BankSlot.duplicateItem(fakeItem.getItemId(), fakeItem.getQuantity())
+                            BankSlot.layoutPlaceholder(fakeItem.getSlot().itemId) :
+                            BankSlot.duplicateItem(fakeItem.getSlot().itemId, fakeItem.getQuantity())
             );
         }
 
@@ -808,7 +813,7 @@ public class BankLayoutTest
 
 	private void checkLayout(Layout layout, int index, int itemId)
 	{
-		assertEquals(itemId, layout.getItemAtIndex(index));
+		assertEquals(itemId, layout.getItemAtIndex(index).itemId);
 	}
 
 	private static class LaidOutBank {

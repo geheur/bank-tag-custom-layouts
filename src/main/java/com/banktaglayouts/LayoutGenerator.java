@@ -7,7 +7,6 @@ import java.util.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import net.runelite.api.EquipmentInventorySlot;
@@ -99,39 +98,39 @@ public class LayoutGenerator {
 		}
 
 		// If the item is in a safe spot copy it over from the old layout
-		for (Map.Entry<Integer, Integer> e: currentLayout.allPairs()) {
-			if (indexInAllowedSpace(inventory, e.getKey())) {
-				previewLayout.putItem(e.getValue(), e.getKey());
-			}
-		}
-		// If the item is in an invalid spot move it to a valid spot in the sandbox area
-		for (Map.Entry<Integer, Integer> e: currentLayout.allPairs()) {
-			if (!indexInAllowedSpace(inventory, e.getKey())) {
-				if (inventory.contains(e.getValue()) || equippedItems.contains(e.getValue()) || (hasPouch && runePouch.contains(e.getValue()))) {
-					continue;
-				}
-				int index = 0;
-				while (!indexInAllowedSpace(inventory, index) || (previewLayout.getItemAtIndex(index) != -1)) {
-					index++;
-				}
-
-                if (!layoutContainsItem(e.getValue(), previewLayout)) {
-					previewLayout.putItem(e.getValue(), index);
-				}
-			}
-		}
+//		for (Map.Entry<Integer, Integer> e: currentLayout.allPairs()) {
+//			if (indexInAllowedSpace(inventory, e.getKey())) {
+//				previewLayout.putItem(e.getValue(), e.getKey());
+//			}
+//		}
+//		// If the item is in an invalid spot move it to a valid spot in the sandbox area
+//		for (Map.Entry<Integer, Integer> e: currentLayout.allPairs()) {
+//			if (!indexInAllowedSpace(inventory, e.getKey())) {
+//				if (inventory.contains(e.getValue()) || equippedItems.contains(e.getValue()) || (hasPouch && runePouch.contains(e.getValue()))) {
+//					continue;
+//				}
+//				int index = 0;
+//				while (!indexInAllowedSpace(inventory, index) || (previewLayout.getItemAtIndex(index) != -1)) {
+//					index++;
+//				}
+//
+//                if (!layoutContainsItem(e.getValue(), previewLayout)) {
+//					previewLayout.putItem(e.getValue(), index);
+//				}
+//			}
+//		}
 
 		// Add additional items
-		for (Integer i: additionalItems) {
-			if (previewLayout.countItemsWithId(i) > 0) {
-				continue;
-			}
-			int index = 0;
-			while (!indexInAllowedSpace(inventory, index) || (previewLayout.getItemAtIndex(index) > 0)) {
-				index++;
-			}
-			previewLayout.putItem(i, index);
-		}
+//		for (Integer i: additionalItems) {
+//			if (previewLayout.countItemsWithId(i) > 0) {
+//				continue;
+//			}
+//			int index = 0;
+//			while (!indexInAllowedSpace(inventory, index) || (previewLayout.getItemAtIndex(index) > 0)) {
+//				index++;
+//			}
+//			previewLayout.putItem(i, index);
+//		}
 
 		return previewLayout;
 	}
@@ -194,39 +193,36 @@ public class LayoutGenerator {
 
 		i = layoutItems(inventory, currentLayout, previewLayout, displacedItems, i, true);
 
-		if (runePouch != null)
-		{
-			i = layoutItems(runePouch, currentLayout, previewLayout, displacedItems, i, false);
-		}
+		i = layoutItems(runePouch, currentLayout, previewLayout, displacedItems, i, false);
 
 		i = layoutItems(additionalItems, currentLayout, previewLayout, displacedItems, i, false);
 
 		int displacedItemsStart = i;
 
 		// copy items from current layout into the empty spots.
-		for (Map.Entry<Integer, Integer> itemPosition : currentLayout.allPairs()) {
-			int index = itemPosition.getKey();
-			int currentItemAtIndex = itemPosition.getValue();
-			int previewItemAtIndex = previewLayout.getItemAtIndex(index);
-
-			if (currentItemAtIndex != -1 && previewItemAtIndex == -1) {
-				previewLayout.putItem(currentItemAtIndex, index);
-			}
-		}
+//		for (Map.Entry<Integer, Integer> itemPosition : currentLayout.allPairs()) {
+//			int index = itemPosition.getKey();
+//			int currentItemAtIndex = itemPosition.getValue();
+//			int previewItemAtIndex = previewLayout.getItemAtIndex(index);
+//
+//			if (currentItemAtIndex != -1 && previewItemAtIndex == -1) {
+//				previewLayout.putItem(currentItemAtIndex, index);
+//			}
+//		}
 
 		// Remove items that were placed as part of the gear or inventory.
 		displacedItems = displacedItems.stream().filter(id -> !layoutContainsItem(id, previewLayout)).collect(Collectors.toList());
 
 		int j = displacedItemsStart;
-		while (displacedItems.size() > 0 && j < 2000 / 38 * 8) {
-			int currentItemAtIndex = currentLayout.getItemAtIndex(j);
-			if (currentItemAtIndex == -1) {
-				Integer itemId = displacedItems.remove(0);
-				previewLayout.putItem(itemId, j);
-			}
-
-			j++;
-		}
+//		while (displacedItems.size() > 0 && j < 2000 / 38 * 8) {
+//			int currentItemAtIndex = currentLayout.getItemAtIndex(j);
+//			if (currentItemAtIndex == -1) {
+//				Integer itemId = displacedItems.remove(0);
+//				previewLayout.putItem(itemId, j);
+//			}
+//
+//			j++;
+//		}
 
 		return previewLayout;
 	}
@@ -257,14 +253,14 @@ public class LayoutGenerator {
 	}
 
 	private int layoutItems(List<Integer> inventory, Layout currentLayout, Layout previewLayout, List<Integer> displacedItems, int i, boolean useZigZag) {
-		for (Integer itemId : inventory) {
-			if (itemId == -1) continue;
-			int index = useZigZag ? toZigZagIndex(i, 0, 0) : i;
-			previewLayout.putItem(itemId, index);
-			int currentLayoutItem = currentLayout.getItemAtIndex(index);
-			if (currentLayoutItem != -1) displacedItems.add(currentLayoutItem);
-			i++;
-		}
+//		for (Integer itemId : inventory) {
+//			if (itemId == -1) continue;
+//			int index = useZigZag ? toZigZagIndex(i, 0, 0) : i;
+//			previewLayout.putItem(itemId, index);
+//			int currentLayoutItem = currentLayout.getItemAtIndex(index);
+//			if (currentLayoutItem != -1) displacedItems.add(currentLayoutItem);
+//			i++;
+//		}
 		if (!inventory.isEmpty()) {
 			Optional<Integer> highestUsedIndex = previewLayout.getAllUsedIndexes().stream().max(Integer::compare);
 			if (highestUsedIndex.isPresent()) {
@@ -279,12 +275,12 @@ public class LayoutGenerator {
 	}
 
 	private boolean layoutContainsItem(int id, Layout previewLayout) {
-		int baseId = ItemVariationMapping.map(plugin.getNonPlaceholderId(id));
-		for (Integer item : previewLayout.getAllUsedItemIds()) {
-			if (baseId == ItemVariationMapping.map(plugin.getNonPlaceholderId(item))) {
-				return true;
-			}
-		}
+//		int baseId = ItemVariationMapping.map(plugin.getNonPlaceholderId(id));
+//		for (Integer item : previewLayout.getUniqueLayoutSlots()) {
+//			if (baseId == ItemVariationMapping.map(plugin.getNonPlaceholderId(item))) {
+//				return true;
+//			}
+//		}
 		return false;
 	}
 

@@ -9,7 +9,6 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.tooltip.TooltipManager;
 
 import javax.inject.Inject;
 import java.awt.*;
@@ -71,7 +70,7 @@ public class FakeItemOverlay extends Overlay {
 				dragDeltaY = client.getMouseCanvasPosition().getY() - plugin.dragStartY;
 				dragDeltaY += bankItemContainer.getScrollY() - plugin.dragStartScroll;
 			}
-			int fakeItemId = fakeItem.getItemId();
+			int fakeItemId = fakeItem.getSlot().itemId;
 
 			int x = BankTagLayoutsPlugin.getXForIndex(fakeItem.index) + canvasLocation.getX() + dragDeltaX;
 			int y = BankTagLayoutsPlugin.getYForIndex(fakeItem.index) + yOffset - scrollY + dragDeltaY;

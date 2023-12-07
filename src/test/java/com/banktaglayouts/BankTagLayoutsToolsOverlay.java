@@ -48,13 +48,13 @@ public class BankTagLayoutsToolsOverlay extends Overlay
 		if (plugin.fakeItems.stream().noneMatch(fakeItem -> fakeItem.index == index)) return;
 
 		if (index != -1) {
-			int itemIdForTooltip = layout.getItemAtIndex(index);
-			if (itemIdForTooltip != -1 && tooltip == null) {
-				String tooltipString = ColorUtil.wrapWithColorTag(plugin.itemName(itemIdForTooltip), BankTagLayoutsPlugin.itemTooltipColor);
-				tooltipString += " (" + itemIdForTooltip + (plugin.isPlaceholder(itemIdForTooltip) ? ", ph" : "") + ")";
-				tooltip = new Tooltip(tooltipString);
-				tooltipManager.add(tooltip);
-			}
+//			int itemIdForTooltip = layout.getItemAtIndex(index);
+//			if (itemIdForTooltip != -1 && tooltip == null) {
+//				String tooltipString = ColorUtil.wrapWithColorTag(plugin.itemName(itemIdForTooltip), BankTagLayoutsPlugin.itemTooltipColor);
+//				tooltipString += " (" + itemIdForTooltip + (plugin.isPlaceholder(itemIdForTooltip) ? ", ph" : "") + ")";
+//				tooltip = new Tooltip(tooltipString);
+//				tooltipManager.add(tooltip);
+//			}
 		}
 	}
 }
