@@ -3,7 +3,7 @@ package com.banktaglayouts;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import javax.inject.Inject;
-import net.runelite.api.widgets.WidgetInfo;
+import net.runelite.api.widgets.ComponentID;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
@@ -21,7 +21,7 @@ public class BankTagLayoutsToolsOverlay extends Overlay
 	private Tooltip tooltip = null;
 
 	BankTagLayoutsToolsOverlay() {
-		drawAfterLayer(WidgetInfo.BANK_ITEM_CONTAINER);
+		drawAfterLayer(ComponentID.BANK_ITEM_CONTAINER);
 		setLayer(OverlayLayer.MANUAL);
 		setPosition(OverlayPosition.DYNAMIC);
 	}

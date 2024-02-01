@@ -3,8 +3,8 @@ package com.banktaglayouts;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Point;
+import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
@@ -31,7 +31,7 @@ public class FakeItemOverlay extends Overlay {
 
     FakeItemOverlay()
     {
-        drawAfterLayer(WidgetInfo.BANK_ITEM_CONTAINER);
+        drawAfterLayer(ComponentID.BANK_ITEM_CONTAINER);
         setLayer(OverlayLayer.MANUAL);
         setPosition(OverlayPosition.DYNAMIC);
     }
@@ -45,7 +45,7 @@ public class FakeItemOverlay extends Overlay {
         Layout layout = plugin.getBankOrder(currentLayoutableThing);
         if (layout == null) return null;
 
-        Widget bankItemContainer = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER);
+        Widget bankItemContainer = client.getWidget(ComponentID.BANK_ITEM_CONTAINER);
         if (bankItemContainer == null) return null;
 		int scrollY = bankItemContainer.getScrollY();
         Point canvasLocation = bankItemContainer.getCanvasLocation();

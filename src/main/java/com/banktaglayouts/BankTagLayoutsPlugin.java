@@ -70,12 +70,13 @@ import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
+import net.runelite.api.widgets.ComponentID;
+import net.runelite.api.widgets.InterfaceID;
 import net.runelite.api.widgets.JavaScriptCallback;
 import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetID;
-import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.api.widgets.WidgetPositionMode;
 import net.runelite.api.widgets.WidgetType;
+import net.runelite.api.widgets.WidgetUtil;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -192,7 +193,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private void updateButton() {
 		if (showLayoutPreviewButton == null) {
-			Widget parent = client.getWidget(WidgetInfo.BANK_CONTENT_CONTAINER);
+			Widget parent = client.getWidget(ComponentID.BANK_CONTENT_CONTAINER);
 			if (parent == null) return;
 			showLayoutPreviewButton = parent.createChild(-1, WidgetType.GRAPHIC);
 
@@ -246,7 +247,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded event)
 	{
-		if (event.getGroupId() == WidgetID.BANK_GROUP_ID) showLayoutPreviewButton = null; // when the bank widget is unloaded or loaded (not sure which) the button is removed from it somehow. So, set it to null so that it will be regenerated.
+		if (event.getGroupId() == InterfaceID.BANK) showLayoutPreviewButton = null; // when the bank widget is unloaded or loaded (not sure which) the button is removed from it somehow. So, set it to null so that it will be regenerated.
 	}
 
 	@Override
@@ -512,7 +513,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			updateInventorySetupShown();
 		}
 
-		Widget widget = client.getWidget(WidgetInfo.BANK_CONTAINER);
+		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
 		if (widget == null || widget.isHidden()) {
 			return;
 		}
@@ -529,7 +530,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			{
 				MenuEntry menuEntry = menuEntries[menuEntries.length - 1];
 				if (
-						WidgetInfo.TO_GROUP(menuEntry.getParam1()) == WidgetID.BANK_GROUP_ID &&
+						WidgetUtil.componentToInterface(menuEntry.getParam1()) == InterfaceID.BANK &&
 								menuEntry.getOption().equals("Release")
 				) {
 					menuEntry.setType(MenuAction.CC_OP);
@@ -560,7 +561,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private String inventorySetup = null;
 	private void updateInventorySetupShown() {
-		Widget bankTitleBar = client.getWidget(WidgetInfo.BANK_TITLE_BAR);
+		Widget bankTitleBar = client.getWidget(ComponentID.BANK_TITLE_BAR);
 		String newSetup = null;
 		if (bankTitleBar != null)
 		{
@@ -579,7 +580,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	@Subscribe
 	public void onWidgetClosed(WidgetClosed widgetClosed) {
-		if (widgetClosed.getGroupId() == WidgetID.BANK_GROUP_ID) {
+		if (widgetClosed.getGroupId() == InterfaceID.BANK) {
 			checkInventorySetup = client.getGameCycle();
 		}
 	}
@@ -833,7 +834,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return; // layout not enabled.
 		}
 
-		List<Widget> bankItems = Arrays.stream(client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER).getDynamicChildren())
+		List<Widget> bankItems = Arrays.stream(client.getWidget(ComponentID.BANK_ITEM_CONTAINER).getDynamicChildren())
 				.filter(bankItem -> !bankItem.isHidden() && bankItem.getItemId() >= 0)
 				.collect(Collectors.toList());
 
@@ -928,9 +929,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private void bankReorderWarning(ScriptEvent ev) {
 		if (
 				config.warnForAccidentalBankReorder()
-						&& ev.getSource().getId() == WidgetInfo.BANK_ITEM_CONTAINER.getId() && tabInterface.isActive()
+						&& ev.getSource().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.isActive()
 						&& client.getDraggedOnWidget() != null
-						&& client.getDraggedOnWidget().getId() == WidgetInfo.BANK_ITEM_CONTAINER.getId() && tabInterface.isActive()
+						&& client.getDraggedOnWidget().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.isActive()
 						&& !hasLayoutEnabled(getCurrentLayoutableThing())
 						&& !Boolean.parseBoolean(configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, "preventTagTabDrags"))
 		) {
@@ -1011,7 +1012,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			draggedItemIndex = fakeItem.index;
 			dragStartX = mouseEvent.getX();
 			dragStartY = mouseEvent.getY();
-			dragStartScroll = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER).getScrollY();
+			dragStartScroll = client.getWidget(ComponentID.BANK_ITEM_CONTAINER).getScrollY();
 			antiDrag.startDrag();
 			mouseEvent.consume();
 		}
@@ -1075,7 +1076,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Subscribe
 	public void onMenuEntryAdded(MenuEntryAdded menuEntryAdded)
 	{
-		Widget widget = client.getWidget(WidgetInfo.BANK_CONTAINER);
+		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
 		if (widget == null || widget.isHidden()) {
 			return;
 		}
@@ -1102,7 +1103,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private void addBankTagTabMenuEntries(MenuEntryAdded menuEntryAdded)
 	{
-		if (WidgetInfo.TO_GROUP(menuEntryAdded.getActionParam1()) == WidgetInfo.BANK_CONTENT_CONTAINER.getGroupId()) {
+		if (WidgetUtil.componentToInterface(menuEntryAdded.getActionParam1()) == InterfaceID.BANK) {
 			String bankTagName = Text.removeTags(menuEntryAdded.getTarget()).replace("\u00a0"," ");
 
 			if ("Rename tag tab".equals(menuEntryAdded.getOption())) {
@@ -1268,7 +1269,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	 * @return -1 if the mouse is not over a location where a bank item can be.
 	 */
 	int getIndexForMousePosition(boolean dontEnlargeClickbox, boolean noLowerLimit) {
-		Widget bankItemContainer = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER);
+		Widget bankItemContainer = client.getWidget(ComponentID.BANK_ITEM_CONTAINER);
 		if (bankItemContainer == null) return -1;
 		Point mouseCanvasPosition = client.getMouseCanvasPosition();
 
@@ -1302,7 +1303,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Subscribe
 	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
-		Widget widget = client.getWidget(WidgetInfo.BANK_CONTAINER);
+		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
 		if (widget == null || widget.isHidden()) {
 			return;
 		}
@@ -1311,7 +1312,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (
 				config.preventVanillaPlaceholderMenuBug() &&
 						!client.isMenuOpen() &&
-						WidgetInfo.TO_GROUP(event.getParam1()) == WidgetID.BANK_GROUP_ID &&
+						WidgetUtil.componentToInterface(event.getParam1()) == InterfaceID.BANK &&
 						event.getMenuOption().equals("Release")
 		) {
 			event.consume();
@@ -1611,7 +1612,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	private void setItemPositions(Map<Integer, Widget> indexToWidget) {
-		Widget container = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER);
+		Widget container = client.getWidget(ComponentID.BANK_ITEM_CONTAINER);
 		// Hide all widgets not in indexToWidget.
 		outer_loop:
 		for (Widget child : container.getDynamicChildren()) {
@@ -1679,7 +1680,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	private void resizeBankContainerScrollbar(int height, int lastHeight) {
-		Widget container = client.getWidget(WidgetInfo.BANK_ITEM_CONTAINER);
+		Widget container = client.getWidget(ComponentID.BANK_ITEM_CONTAINER);
 
 		container.setScrollHeight(height); // This change requires the script below to run to take effect.
 
@@ -1687,8 +1688,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		clientThread.invokeLater(() ->
 				client.runScript(ScriptID.UPDATE_SCROLLBAR,
-						WidgetInfo.BANK_SCROLLBAR.getId(),
-						WidgetInfo.BANK_ITEM_CONTAINER.getId(),
+						ComponentID.BANK_SCROLLBAR,
+						ComponentID.BANK_ITEM_CONTAINER,
 						itemContainerScroll)
 		);
 	}
@@ -1760,7 +1761,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	// Disable reordering your real bank while any tag tab is active, as if the Bank Tags Plugin's "Prevent tag tab item dragging" was enabled.
 	@Subscribe(priority = -1f) // run after bank tags, otherwise you can't drag items into other tabs while a tab is open.
 	public void onDraggingWidgetChanged(DraggingWidgetChanged event) {
-		Widget widget = client.getWidget(WidgetInfo.BANK_CONTAINER);
+		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
 		if (widget == null || widget.isHidden()) {
 			return;
 		}
@@ -1769,7 +1770,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		// Returning early or nulling the drag release listener has no effect. Hence, we need to
 		// null the draggedOnWidget instead.
-		if (draggedWidget.getId() == WidgetInfo.BANK_ITEM_CONTAINER.getId() && hasLayoutEnabled(getCurrentLayoutableThing())) {
+		if (draggedWidget.getId() == ComponentID.BANK_ITEM_CONTAINER && hasLayoutEnabled(getCurrentLayoutableThing())) {
 			client.setDraggedOnWidget(null);
 		}
 	}
@@ -1783,7 +1784,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Subscribe
 	public void onMenuShouldLeftClick(MenuShouldLeftClick event)
 	{
-		Widget widget = client.getWidget(WidgetInfo.BANK_CONTAINER);
+		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
 		if (widget == null || widget.isHidden()) {
 			return;
 		}
