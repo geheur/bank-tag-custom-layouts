@@ -175,6 +175,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Inject
 	public Gson gson;
 
+	@Inject private UsedToBeReflection copyPaste;
+
 	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
 	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
 
@@ -756,8 +758,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		return sb.toString().toLowerCase();
 	}
-
-	private UsedToBeReflection copyPaste = new UsedToBeReflection(this);
 
 	// TODO what is the purpose of the return value.
 	private boolean importBankTag(String name, String tagString) {
