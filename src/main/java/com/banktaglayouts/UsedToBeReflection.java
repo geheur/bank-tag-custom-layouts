@@ -67,7 +67,9 @@ public class UsedToBeReflection {
     }
 
     public void saveNewTab(String newTabName) {
-        List<String> tabs = new ArrayList<>(Text.fromCSV(plugin.configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, TAG_TABS_CONFIG)));
+		String configuration = plugin.configManager.getConfiguration(CONFIG_GROUP, TAG_TABS_CONFIG);
+		if (configuration == null) configuration = "";
+		List<String> tabs = new ArrayList<>(Text.fromCSV(configuration));
         tabs.add(newTabName);
         String tags = Text.toCSV(tabs);
         plugin.configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, TAG_TABS_CONFIG, tags);

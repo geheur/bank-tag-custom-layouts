@@ -130,7 +130,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public static final int BANK_ITEM_HEIGHT = 32;
 
 	@Inject
-	private Client client;
+	Client client;
 
 	@Inject
 	private OverlayManager overlayManager;
