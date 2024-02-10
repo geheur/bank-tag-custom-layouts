@@ -192,9 +192,20 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private final LayoutGenerator layoutGenerator = new LayoutGenerator(this);
 
 	private void updateButton() {
-		if (showLayoutPreviewButton == null) {
-			Widget parent = client.getWidget(ComponentID.BANK_CONTENT_CONTAINER);
-			if (parent == null) return;
+		Widget parent = client.getWidget(ComponentID.BANK_CONTENT_CONTAINER);
+		if (parent == null) return;
+
+		boolean found = false;
+		if (showLayoutPreviewButton != null) {
+			for (Widget dynamicChild : parent.getDynamicChildren())
+			{
+				if (dynamicChild == showLayoutPreviewButton) {
+					found = true;
+					break;
+				}
+			}
+		}
+		if (!found || showLayoutPreviewButton == null) {
 			showLayoutPreviewButton = parent.createChild(-1, WidgetType.GRAPHIC);
 
 			showLayoutPreviewButton.setOriginalHeight(18);
@@ -623,7 +634,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 			lastLayoutable = layoutable;
 
-			updateButton();
+			// invokelater is required for when you open the bank with a tag tab already open.
+			clientThread.invokeLater(this::updateButton);
 		}
 	}
 
