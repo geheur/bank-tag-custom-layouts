@@ -384,6 +384,14 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		// because it can cause people to lose their data. Real renames come through on the client thread.
 		if (!client.isClientThread()) return;
 
+		for (StackTraceElement stackTraceElement : new Exception().getStackTrace())
+		{
+//			System.out.println(stackTraceElement.getClassName() + " " + stackTraceElement.getMethodName());
+			if (stackTraceElement.getMethodName().equals("switchProfile")) {
+				return;
+			}
+		}
+
 		String oldValue = event.getOldValue();
 		String newValue = event.getNewValue();
 		Set<String> oldTags = new HashSet<>(Text.fromCSV(oldValue == null ? "" : oldValue));
