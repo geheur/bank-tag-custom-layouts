@@ -79,8 +79,10 @@ import net.runelite.api.widgets.WidgetType;
 import net.runelite.api.widgets.WidgetUtil;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.ConfigProfile;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.events.ProfileChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemVariationMapping;
 import net.runelite.client.game.SpriteManager;
@@ -264,6 +266,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Override
 	protected void startUp()
 	{
+		lastProfile = configManager.getProfile();
+
 		overlayManager.add(fakeItemOverlay);
 		spriteManager.addSpriteOverrides(Sprites.values());
 		mouseManager.registerMouseListener(this);
@@ -379,17 +383,19 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 	}
 
+	private ConfigProfile lastProfile = null;
+
+	@Subscribe
+	public void onProfileChanged(ProfileChanged e) {
+		lastProfile = configManager.getProfile();
+	}
+
 	private void handlePotentialTagRename(ConfigChanged event) {
 		// Profile changes can look like tag renames sometimes, but we do not want to modify the config in that case
-		// because it can cause people to lose their data. Real renames come through on the client thread.
-		if (!client.isClientThread()) return;
-
-		for (StackTraceElement stackTraceElement : new Exception().getStackTrace())
-		{
-//			System.out.println(stackTraceElement.getClassName() + " " + stackTraceElement.getMethodName());
-			if (stackTraceElement.getMethodName().equals("switchProfile")) {
-				return;
-			}
+		// because it can cause people to lose their data.
+		// The order is 1) configManager.getProfile() changes 2) ConfigChanged events 3) ProfileChanged event
+		if (!lastProfile.equals(configManager.getProfile())) {
+			return;
 		}
 
 		String oldValue = event.getOldValue();
