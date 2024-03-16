@@ -38,18 +38,19 @@ import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import joptsimple.internal.Strings;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.client.config.ConfigManager;
 
 @Slf4j
 public class InventorySetupsAdapter {
 
     public static final String CONFIG_GROUP = "inventorysetups";
-	public static final String CONFIG_KEY_SETUPS = "setups";
-	public static final String CONFIG_KEY_SETUPS_V2 = "setupsV2";
-	public static final String CONFIG_KEY_SETUPS_MIGRATED_V2 = "migratedV2";
+	public static final String CONFIG_KEY_SETUPS_V3_PREFIX = "setupsV3_";
+	public static final String CONFIG_KEY_SETUPS_ORDER_V3 = "setupsOrderV3_";
 
-    private final BankTagLayoutsPlugin plugin;
+	private final BankTagLayoutsPlugin plugin;
 
 	private Gson gson;
 
@@ -60,58 +61,12 @@ public class InventorySetupsAdapter {
 	// This method does not exist anywhere in inventory setups.
     public InventorySetup getInventorySetup(String name)
     {
-    	if (gson == null) this.gson = plugin.gson.newBuilder().registerTypeAdapter(long.class, new LongTypeAdapter()).registerTypeAdapter(InventorySetupItemSerializable.class, new InventorySetupItemSerializableTypeAdapter()).create();
-		String hasMigratedToV2 = plugin.configManager.getConfiguration(CONFIG_GROUP, CONFIG_KEY_SETUPS_MIGRATED_V2);
-		if (!Strings.isNullOrEmpty(hasMigratedToV2)) {
-			Type setupTypeV2 = new TypeToken<ArrayList<InventorySetupSerializable>>() {}.getType();
-			List<InventorySetupSerializable> issList = new ArrayList<>(loadData(CONFIG_KEY_SETUPS_V2, setupTypeV2));
-			for (final InventorySetupSerializable iss : issList)
-			{
-				InventorySetup setup = InventorySetupSerializable.convertToInventorySetup(iss);
-				if (setup.getName().equals(name)) return setup;
-			}
-			return null;
-		}
-
-        try
-        {
-			Type setupType = new TypeToken<ArrayList<InventorySetup>>() {}.getType();
-			List<InventorySetup> inventorySetups = loadData(CONFIG_KEY_SETUPS, setupType);
-            return inventorySetups.stream()
-				.filter(s -> s.getName().equals(name))
-				.findAny().orElse(null);
-        }
-        catch (Exception e)
-        {
-            return null;
-        }
+		if (gson == null) this.gson = plugin.gson.newBuilder().registerTypeAdapter(long.class, new LongTypeAdapter()).registerTypeAdapter(InventorySetupItemSerializable.class, new InventorySetupItemSerializableTypeAdapter()).create();
+		return loadSetupByName(name);
     }
-
-	private <T> List<T> loadData(final String configKey, Type type)
-	{
-		final String storedData = plugin.configManager.getConfiguration(CONFIG_GROUP, configKey);
-		if (Strings.isNullOrEmpty(storedData))
-		{
-			return new ArrayList<>();
-		}
-		else
-		{
-			try
-			{
-				// serialize the internal data structure from the json in the configuration
-				return plugin.gson.fromJson(storedData, type);
-			}
-			catch (Exception e)
-			{
-				log.error("Exception occurred while loading data", e);
-				return new ArrayList<>();
-			}
-		}
-	}
 
 	public boolean setupContainsItem(final InventorySetup setup, int itemID)
 	{
-		if (gson == null) this.gson = plugin.gson.newBuilder().registerTypeAdapter(long.class, new LongTypeAdapter()).registerTypeAdapter(InventorySetupItemSerializable.class, new InventorySetupItemSerializableTypeAdapter()).create();
 		// So place holders will show up in the bank.
 		itemID = plugin.itemManager.canonicalize(itemID);
 
@@ -186,6 +141,65 @@ public class InventorySetupsAdapter {
 		}
 
 		return itemId;
+	}
+
+	private InventorySetup loadV3Setup(String configKey)
+	{
+		final String storedData = plugin.configManager.getConfiguration(CONFIG_GROUP, configKey);
+		try
+		{
+			return InventorySetupSerializable.convertToInventorySetup(gson.fromJson(storedData, InventorySetupSerializable.class));
+		}
+		catch (Exception e)
+		{
+			log.error(String.format("Exception occurred while loading %s", configKey), e);
+			throw e;
+		}
+	}
+
+	private InventorySetup loadSetupByName(String name) {
+		final String wholePrefix = ConfigManager.getWholeKey(CONFIG_GROUP, null, CONFIG_KEY_SETUPS_V3_PREFIX);
+		final List<String> loadedSetupWholeKeys = plugin.configManager.getConfigurationKeys(wholePrefix);
+		Set<String> loadedSetupKeys = loadedSetupWholeKeys.stream().map(
+			key -> key.substring(wholePrefix.length() - CONFIG_KEY_SETUPS_V3_PREFIX.length())
+		).collect(Collectors.toSet());
+
+		Type setupsOrderType = new TypeToken<ArrayList<String>>()
+		{
+
+		}.getType();
+		final String setupsOrderJson = plugin.configManager.getConfiguration(CONFIG_GROUP, CONFIG_KEY_SETUPS_ORDER_V3);
+		List<String> setupsOrder = gson.fromJson(setupsOrderJson, setupsOrderType);
+		if (setupsOrder == null)
+		{
+			setupsOrder = new ArrayList<>();
+		}
+
+		List<InventorySetup> loadedSetups = new ArrayList<>();
+		for (final String configHash : setupsOrder)
+		{
+			final String configKey = CONFIG_KEY_SETUPS_V3_PREFIX + configHash;
+			if (loadedSetupKeys.remove(configKey))
+			{ // Handles if hash is present only in configOrder.
+				final InventorySetup setup = loadV3Setup(configKey);
+				if (name.equals(setup.getName())) {
+					return setup;
+				}
+//				loadedSetups.add(setup);
+			}
+		}
+		for (final String configKey : loadedSetupKeys)
+		{
+			// Load any remaining setups not present in setupsOrder. Useful if updateConfig crashes midway.
+			log.info("Loading setup that was missing from Order key: " + configKey);
+			final InventorySetup setup = loadV3Setup(configKey);
+			if (name.equals(setup.getName())) {
+				return setup;
+			}
+//			loadedSetups.add(setup);
+		}
+		return null;
+//		return loadedSetups;
 	}
 
 }

@@ -37,7 +37,8 @@ public class InventorySetupsItem
 	@Setter
 	private String name;
 	@Getter
-	private final int quantity;
+	@Setter
+	private int quantity;
 	@Getter
 	@Setter
 	private boolean fuzzy;
@@ -59,9 +60,9 @@ public class InventorySetupsItem
 	{
 		// Don't use the name to compare
 		return item.getId() == -1 &&
-				item.getQuantity() == 0 &&
-				!item.isFuzzy() &&
-				(item.getStackCompare() == InventorySetupsStackCompareID.None || item.getStackCompare() == null);
+			item.getQuantity() == 0 &&
+			!item.isFuzzy() &&
+			(item.getStackCompare() == InventorySetupsStackCompareID.None || item.getStackCompare() == null);
 	}
 
 }

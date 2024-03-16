@@ -52,7 +52,7 @@ public class InventorySetupSerializable
 		List<InventorySetupItemSerializable> bp = convertListFromInventorySetup(inventorySetup.getBoltPouch());
 
 		Map<Integer, InventorySetupItemSerializable> afi = null;
-		if (!inventorySetup.getAdditionalFilteredItems().isEmpty())
+		if (inventorySetup.getAdditionalFilteredItems() != null && !inventorySetup.getAdditionalFilteredItems().isEmpty())
 		{
 			afi = new HashMap<>();
 			for (final Integer key : inventorySetup.getAdditionalFilteredItems().keySet())
@@ -70,7 +70,7 @@ public class InventorySetupSerializable
 		Boolean uh = inventorySetup.isUnorderedHighlight() ? Boolean.TRUE : null;
 		Integer sb = inventorySetup.getSpellBook() != 0 ? inventorySetup.getSpellBook() : null;
 		Boolean fv = inventorySetup.isFavorite() ? Boolean.TRUE : null;
-		Integer iId = inventorySetup.getIconID() <= 0 ? inventorySetup.getIconID() : null;
+		Integer iId = inventorySetup.getIconID() > 0 ? inventorySetup.getIconID() : null;
 
 		return new InventorySetupSerializable(inv, eq, rp, bp, afi, name, notes, hc, hd, dc, fb, uh, sb, fv, iId);
 	}
