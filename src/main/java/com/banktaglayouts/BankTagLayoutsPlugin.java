@@ -394,7 +394,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		// Profile changes can look like tag renames sometimes, but we do not want to modify the config in that case
 		// because it can cause people to lose their data.
 		// The order is 1) configManager.getProfile() changes 2) ConfigChanged events 3) ProfileChanged event
-		if (!lastProfile.equals(configManager.getProfile())) {
+		if (lastProfile.getId() != configManager.getProfile().getId()) {
 			return;
 		}
 
