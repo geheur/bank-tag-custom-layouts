@@ -148,4 +148,14 @@ public interface BankTagLayoutsConfig extends Config {
 	default boolean showAutoLayoutButton() {
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "showCoreRuneliteLayoutOptions",
+		name = "RuneLite layouts options",
+		description = "Shows RuneLite's layout options at the same time as bank tag layouts, e.g. on the tag tab right-click menu.",
+		position = 20
+	)
+	default boolean showCoreRuneliteLayoutOptions() {
+		return false;
+	}
 }
