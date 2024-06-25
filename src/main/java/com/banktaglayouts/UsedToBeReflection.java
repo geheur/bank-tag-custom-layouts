@@ -29,9 +29,14 @@ public class UsedToBeReflection {
 	@Inject private ConfigManager configManager;
 	@Inject private ItemManager itemManager;
 
-    void setIcon(final String tag, final String icon)
+	String getIcon(final String tag)
+	{
+		return configManager.getConfiguration(CONFIG_GROUP, TAG_ICON_PREFIX + Text.standardize(tag));
+	}
+
+	void setIcon(final String tag, final String icon)
     {
-        configManager.setConfiguration(CONFIG_GROUP, ICON_SEARCH + Text.standardize(tag), icon);
+        configManager.setConfiguration(CONFIG_GROUP, TAG_ICON_PREFIX + Text.standardize(tag), icon);
     }
 
     boolean findTag(int itemId, String bankTagName) {

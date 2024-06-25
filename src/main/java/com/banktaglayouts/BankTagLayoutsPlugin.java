@@ -97,6 +97,8 @@ import net.runelite.client.plugins.bank.BankSearch;
 import net.runelite.client.plugins.banktags.BankTagsPlugin;
 import net.runelite.client.plugins.banktags.TagManager;
 import net.runelite.client.plugins.banktags.tabs.TabInterface;
+import net.runelite.client.plugins.banktags.tabs.TabManager;
+import net.runelite.client.plugins.banktags.tabs.TagTab;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.Text;
@@ -120,14 +122,14 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public static final String BANK_TAG_STRING_PREFIX = "banktaglayoutsplugin:";
 	public static final String LAYOUT_EXPLICITLY_DISABLED = "DISABLED";
 
-	public static final String ENABLE_LAYOUT = "Enable layout";
-	public static final String DISABLE_LAYOUT = "Delete layout";
-	public static final String IMPORT_LAYOUT = "Import tag tab with layout";
-	public static final String EXPORT_LAYOUT = "Export tag tab with layout";
-	public static final String REMOVE_FROM_LAYOUT_MENU_OPTION = "Remove-layout";
-	public static final String PREVIEW_AUTO_LAYOUT = "Preview auto layout";
-	public static final String DUPLICATE_ITEM = "Duplicate-item";
-	public static final String REMOVE_DUPLICATE_ITEM = "Remove-duplicate-item";
+	public static final String ENABLE_LAYOUT = "(hub) Enable layout";
+	public static final String DISABLE_LAYOUT = "(hub) Delete layout";
+	public static final String IMPORT_LAYOUT = "(hub) Import tag tab with layout";
+	public static final String EXPORT_LAYOUT = "(hub) Export tag tab with layout";
+	public static final String REMOVE_FROM_LAYOUT_MENU_OPTION = "(hub) Remove-layout";
+	public static final String PREVIEW_AUTO_LAYOUT = "(hub) Preview auto layout";
+	public static final String DUPLICATE_ITEM = "(hub) Duplicate-item";
+	public static final String REMOVE_DUPLICATE_ITEM = "(hub) Remove-duplicate-item";
 
 	public static final int BANK_ITEM_WIDTH = 36;
 	public static final int BANK_ITEM_HEIGHT = 32;
@@ -254,7 +256,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 
 		hideLayoutPreviewButtons(!isShowingPreview());
-		showLayoutPreviewButton.setHidden(!(config.showAutoLayoutButton() && getCurrentLayoutableThing() != null && !isShowingPreview()));
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		showLayoutPreviewButton.setHidden(!(config.showAutoLayoutButton() && layoutable != null && !isVanillaLayoutEnabled(layoutable) && !isShowingPreview()));
 	}
 
 	@Subscribe
@@ -417,7 +420,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		LayoutableThing oldName = LayoutableThing.bankTag(oldTags.iterator().next());
 		String newName = newTags.iterator().next();
 
-		Layout oldLayout = getBankOrder(oldName);
+		Layout oldLayout = getBankOrderNonPreview(oldName);
 		if (oldLayout != null) {
 			saveLayout(LayoutableThing.bankTag(newName), oldLayout);
 			configManager.unsetConfiguration(CONFIG_GROUP, oldName.configKey());
@@ -473,6 +476,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		LayoutableThing currentLayoutableThing = getCurrentLayoutableThing();
 		if (currentLayoutableThing == null) {
 			chatMessage("Select a tag tab before using this feature.");
+			return;
+		} else if (isVanillaLayoutEnabled(currentLayoutableThing)) {
+			chatErrorMessage("This tag is using the new non-plugin-hub version of bank tag layouts. Disable it before using the plugin-hub version, by right-clicking the tag tab and selecting \"Disable layout\".");
 			return;
 		} else {
 			// TODO allow creation of new tab.
@@ -536,6 +542,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public void onClientTick(ClientTick clientTick) {
 		if (checkInventorySetup + 1 == client.getGameCycle()) {
 			updateInventorySetupShown();
+		}
+
+		if (!client.isMenuOpen()) {
+			addBankTagTabMenuEntries();
 		}
 
 		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
@@ -640,7 +650,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public void onScriptPostFired(ScriptPostFired event) {
 		if (event.getScriptId() == ScriptID.BANKMAIN_BUILD) {
 			LayoutableThing layoutable = getCurrentLayoutableThing();
-			if (layoutable == null || !layoutable.equals(lastLayoutable)) {
+			if (layoutable == null || !layoutable.equals(lastLayoutable) || isVanillaLayoutEnabled(layoutable)) {
 				cancelLayoutPreview();
 			}
 
@@ -669,7 +679,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		if (!clipboardData.startsWith(BANK_TAG_STRING_PREFIX)) {
 			// TODO try to import the tag as a normal tag?.
-			if (Pattern.compile("[^,]+,\\d+(,[\\d-]+)*").matcher(clipboardData).matches()) {
+			if (Pattern.compile("[^,]+,\\d+(,[\\d-]+)*").matcher(clipboardData).matches() || clipboardData.startsWith("banktag")) {
 				chatErrorMessage("import failed:", " This looks like a regular bank tag, try using \"Import tag tab\" instead of \"" + IMPORT_LAYOUT + "\".");
 			} else {
 				chatErrorMessage("import failed:", " Invalid format. layout-ed tag data starts with \"" + BANK_TAG_STRING_PREFIX + "\"; did you copy the wrong thing?");
@@ -750,6 +760,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		boolean successful = importBankTag(name, tagString);
 		if (!successful) return;
 
+		tabManager.find(name).setLayout(null); // disable vanilla layout
 		saveLayout(LayoutableThing.bankTag(name), layout);
 
 		chatMessage("Imported layout-ed tag tab \"" + name + "\"");
@@ -808,16 +819,14 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return true;
 	}
 
-	public boolean hasLayoutEnabled(LayoutableThing layoutable) {
-		if (layoutable == null) return false;
-		if (isShowingPreview()) return true;
-
-		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
-		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
-		return configuration != null || (layoutable.isBankTab() && config.layoutEnabledByDefault()) || (layoutable.isInventorySetup() && config.useWithInventorySetups());
-	}
+	@Inject TabManager tabManager;
 
 	private void enableLayout(LayoutableThing layoutable) {
+		TagTab tagTab = tabManager.find(layoutable.name);
+		if (tagTab.hasLayout()) {
+			chatErrorMessage("This tag is using the new non-plugin-hub version of bank tag layouts. Disable it before enabling the plugin-hub version, by right-clicking the tag tab and selecting \"Disable layout\".");
+			return;
+		}
 		saveLayout(layoutable, Layout.emptyLayout());
 		if (layoutable.equals(getCurrentLayoutableThing())) {
 			applyCustomBankTagItemPositions();
@@ -864,7 +873,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				.filter(bankItem -> !bankItem.isHidden() && bankItem.getItemId() >= 0)
 				.collect(Collectors.toList());
 
-		if (!hasLayoutEnabled(layoutable)) {
+		if (!hasVanillaOrHubLayoutEnabled(layoutable)) {
 			for (Widget bankItem : bankItems) {
 				bankItem.setOnDragCompleteListener((JavaScriptCallback) (ev) -> {
 					boolean tutorialShown = tutorialMessage();
@@ -958,7 +967,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 						&& ev.getSource().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.isActive()
 						&& client.getDraggedOnWidget() != null
 						&& client.getDraggedOnWidget().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.isActive()
-						&& !hasLayoutEnabled(getCurrentLayoutableThing())
+						&& !hasVanillaOrHubLayoutEnabled(getCurrentLayoutableThing())
 						&& !Boolean.parseBoolean(configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, "preventTagTabDrags"))
 		) {
 			chatErrorMessage("You just reordered your actual bank!");
@@ -1122,30 +1131,48 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			}
 		}
 
-		addBankTagTabMenuEntries(menuEntryAdded);
 		addFakeItemMenuEntries(menuEntryAdded);
 		addDuplicateItemMenuEntries(menuEntryAdded);
 	}
 
-	private void addBankTagTabMenuEntries(MenuEntryAdded menuEntryAdded)
+	private void addBankTagTabMenuEntries()
 	{
-		if (WidgetUtil.componentToInterface(menuEntryAdded.getActionParam1()) == InterfaceID.BANK) {
-			String bankTagName = Text.removeTags(menuEntryAdded.getTarget()).replace("\u00a0"," ");
-
-			if ("Rename tag tab".equals(menuEntryAdded.getOption())) {
-				LayoutableThing layoutable = LayoutableThing.bankTag(bankTagName);
-				if (hasLayoutEnabled(layoutable)) {
-					addEntry(bankTagName, EXPORT_LAYOUT);
+		boolean addtagtabmenuentries = false;
+		String bankTagName = null;
+		for (MenuEntry menuEntry : client.getMenuEntries()) {
+			if (WidgetUtil.componentToInterface(menuEntry.getParam1()) == InterfaceID.BANK) {
+				if ("View tag tab".equals(menuEntry.getOption())) {
+					addtagtabmenuentries = true;
+					bankTagName = Text.removeTags(menuEntry.getTarget()).replace("\u00a0"," ");
+				} else if ("Enable layout".equals(menuEntry.getOption())) {
+					menuEntry.setOption("(vanilla) " + menuEntry.getOption());
+				} else if ("Disable layout".equals(menuEntry.getOption())) {
+					menuEntry.setOption("(vanilla) " + menuEntry.getOption());
+//				} else if ("Rename tag tab".equals(menuEntry.getOption())) {
+				} else if ("New tag tab".equals(menuEntry.getOption())) {
+					if (!config.showAutoLayoutButton()) {
+						addEntry("", PREVIEW_AUTO_LAYOUT);
+					}
+					addEntry("", IMPORT_LAYOUT);
+					return;
 				}
-
-				addEntry(bankTagName, hasLayoutEnabled(layoutable) ? DISABLE_LAYOUT : ENABLE_LAYOUT);
-			} else if ("New tag tab".equals(menuEntryAdded.getOption())) {
-				if (!config.showAutoLayoutButton()) {
-					addEntry(bankTagName, PREVIEW_AUTO_LAYOUT);
-				}
-				addEntry(bankTagName, IMPORT_LAYOUT);
 			}
 		}
+		if (addtagtabmenuentries) {
+			LayoutableThing layoutable = LayoutableThing.bankTag(bankTagName);
+			if (hasLayoutEnabled(layoutable)) {
+				addEntry(bankTagName, EXPORT_LAYOUT);
+			}
+
+			addEntry(bankTagName, hasLayoutEnabled(layoutable) ? DISABLE_LAYOUT : ENABLE_LAYOUT);
+		}
+	}
+
+	private void addEntry(String menuTarget, String menuOption) {
+		client.createMenuEntry(1)
+			.setOption(menuOption)
+			.setTarget(ColorUtil.wrapWithColorTag(menuTarget, itemTooltipColor))
+			.setType(MenuAction.RUNELITE);
 	}
 
 	private volatile boolean mouseIsPressed = false;
@@ -1232,13 +1259,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				.setParam0(index);
 
 		if (!isRealItem) return; // layout placeholders already have "remove-layout" menu option which does the same thing as remove-duplicate-item.
-	}
-
-	private void addEntry(String menuTarget, String menuOption) {
-		client.createMenuEntry(-2)
-				.setOption(menuOption)
-				.setTarget(ColorUtil.wrapWithColorTag(menuTarget, itemTooltipColor))
-				.setType(MenuAction.RUNELITE);
 	}
 
 	private void addFakeItemMenuEntries(MenuEntryAdded menuEntryAdded) {
@@ -1553,11 +1573,41 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return itemHasVariants(nonPlaceholderItemId);
 	}
 
+	public boolean hasLayoutEnabled(LayoutableThing layoutable) {
+		if (layoutable == null) return false;
+		if (isShowingPreview()) return true;
+		if (layoutable.isBankTab && tabManager.find(layoutable.name).hasLayout()) return false;
+
+		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
+		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
+		return configuration != null || (layoutable.isBankTab() && config.layoutEnabledByDefault()) || (layoutable.isInventorySetup() && config.useWithInventorySetups());
+	}
+
+	public boolean hasVanillaOrHubLayoutEnabled(LayoutableThing layoutable) {
+		if (layoutable == null) return false;
+		if (isShowingPreview()) return true;
+		if (tabManager.find(layoutable.name).hasLayout()) return true;
+
+		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
+		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
+		return configuration != null || (layoutable.isBankTab() && config.layoutEnabledByDefault()) || (layoutable.isInventorySetup() && config.useWithInventorySetups());
+	}
+
+	public boolean isVanillaLayoutEnabled(LayoutableThing layoutable) {
+		if (layoutable == null) return false;
+		TagTab tagTab = tabManager.find(layoutable.name);
+		return tagTab != null && tagTab.hasLayout();
+	}
+
+	/**
+	 * the bank order which is actually used.
+	 */
 	Layout getBankOrder(LayoutableThing layoutable) {
 		if (isShowingPreview()) {
 			return previewLayout;
 		}
 
+		if (isVanillaLayoutEnabled(layoutable)) return null;
 		return getBankOrderNonPreview(layoutable);
 	}
 
@@ -1597,7 +1647,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		List<String> data = new ArrayList<>();
 		data.add(tagName);
-		String tagTabIconItemId = configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.ICON_SEARCH + tagName);
+		String tagTabIconItemId = copyPaste.getIcon(tagName);
 		if (tagTabIconItemId == null) {
 			tagTabIconItemId = "" + ItemID.SPADE;
 		}

@@ -19,15 +19,16 @@ dependencies {
 	annotationProcessor 'org.projectlombok:lombok:1.18.4'
 
 	testImplementation 'junit:junit:4.12'
-	testImplementation group: 'net.runelite', name:'client', version: runeLiteVersion
+//	testImplementation group: 'net.runelite', name:'client', version: runeLiteVersion
 
 	testImplementation group: 'org.mockito', name: 'mockito-core', version: '3.8.0'
 	testImplementation group: 'org.mockito', name: 'mockito-inline', version: '3.8.0'
 	testImplementation group: 'com.google.inject.extensions', name: 'guice-testlib', version: '4.1.0'
+    implementation files('C:\\Users\\samue\\Downloads\\client-1.10.32-SNAPSHOT-shaded (16).jar')
 }
 
 group = 'com.banktaglayouts'
-version = '1.4.27'
+version = '1.4.28'
 sourceCompatibility = '1.8'
 
 tasks.withType(JavaCompile) {
