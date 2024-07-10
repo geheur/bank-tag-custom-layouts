@@ -154,6 +154,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Inject public BankTagLayoutsConfig config;
 	@Inject public Gson gson;
 	@Inject public UsedToBeReflection copyPaste;
+	@Inject public LayoutManager layoutManager;
 
 	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
 	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
@@ -242,6 +243,53 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Override
 	protected void startUp()
 	{
+		layoutManager.unregisterAutoLayout("Zigzag");
+		layoutManager.registerAutoLayout(this, "Zigzag", new AutoLayout()
+		{
+			@Override
+			public net.runelite.client.plugins.banktags.tabs.Layout generateLayout(TagTab tagTab)
+			{
+				List<Integer> equippedGear = getEquippedGear();
+				List<Integer> inventory = getInventory();
+				if (equippedGear.stream().noneMatch(id -> id > 0) && inventory.stream().noneMatch(id -> id > 0)) {
+					chatMessage("This feature uses your equipped items and inventory to automatically create a bank tag layout, but you don't have any items equipped or in your inventory.");
+					return null;
+				}
+
+				net.runelite.client.plugins.banktags.tabs.Layout currentLayout = tagTab.getLayout();
+//				System.out.println("=============layout:");
+				Layout l = new Layout();
+				for (int i = 0; i < currentLayout.getLayout().length; i++)
+				{
+					int itemId = currentLayout.getLayout()[i];
+					if (itemId == -1) continue;
+//					System.out.println(itemNameWithId(itemId) + " " + i);
+					l.putItem(itemId, i);
+				}
+//				System.out.println("=============item widgets:");
+				Widget widget = client.getWidget(ComponentID.BANK_ITEM_CONTAINER);
+				for (Widget dynamicChild : widget.getDynamicChildren())
+				{
+					if (dynamicChild.getItemId() == -1) continue;
+//					System.out.println(itemNameWithId(dynamicChild.getItemId()));
+				}
+
+				Layout previewLayout = layoutGenerator.basicBankTagLayout(equippedGear, inventory, config.autoLayoutIncludeRunePouchRunes() ? getRunePouchRunes() : Collections.emptyList(), Collections.emptyList(), l, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
+				net.runelite.client.plugins.banktags.tabs.Layout l2 = new net.runelite.client.plugins.banktags.tabs.Layout();
+				for (Map.Entry<Integer, Integer> pair : previewLayout.allPairs())
+				{
+					l2.setItemAtPos(pair.getValue(), pair.getKey());
+				}
+//				System.out.println("==========================here");
+				for (int i = 0; i < l2.getLayout().length; i++)
+				{
+					int itemId = l2.getLayout()[i];
+					if (itemId == -1) continue;
+//					System.out.println(itemNameWithId(itemId) + " " + i);
+				}
+				return l2;
+			}
+		});
 		lastProfile = configManager.getProfile();
 
 		overlayManager.add(fakeItemOverlay);
