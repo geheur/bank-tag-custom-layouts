@@ -1609,7 +1609,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public boolean hasLayoutEnabled(LayoutableThing layoutable) {
 		if (layoutable == null) return false;
 		if (isShowingPreview()) return true;
-		if (layoutable.isBankTab && tabManager.find(layoutable.name).hasLayout()) return false;
+		TagTab tagTab = tabManager.find(layoutable.name);
+		if (layoutable.isBankTab && tagTab != null && tagTab.hasLayout()) return false;
 
 		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
 		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
@@ -1619,7 +1620,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public boolean hasVanillaOrHubLayoutEnabled(LayoutableThing layoutable) {
 		if (layoutable == null) return false;
 		if (isShowingPreview()) return true;
-		if (tabManager.find(layoutable.name).hasLayout()) return true;
+		TagTab tagTab = tabManager.find(layoutable.name);
+		if (tagTab != null && tagTab.hasLayout()) return true;
 
 		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
 		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
