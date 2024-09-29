@@ -881,6 +881,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return;
 		}
 
+		if (client.getVarbitValue(Varbits.CURRENT_BANK_TAB) == 15) {
+			return;
+		}
+
 		log.debug("applyCustomBankTagItemPositions: " + layoutable);
 
 		indexToWidget.clear();
