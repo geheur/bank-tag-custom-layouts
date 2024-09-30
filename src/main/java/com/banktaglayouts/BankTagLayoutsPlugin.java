@@ -116,6 +116,7 @@ import net.runelite.client.util.Text;
 public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 {
 	public static final IntPredicate FILTERED_CHARS = c -> "</>:".indexOf(c) == -1;
+	public static final int POTIONS_BANK_TAB_VARBIT = 15;
 
 	public static final Color itemTooltipColor = new Color(0xFF9040);
 
@@ -617,6 +618,12 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private String inventorySetup = null;
 	private void updateInventorySetupShown() {
+		// Disable inventory setup when in potions tab.
+		if(client.getVarbitValue(Varbits.CURRENT_BANK_TAB) == POTIONS_BANK_TAB_VARBIT)
+		{
+			inventorySetup = null;
+			return;
+		}
 		Widget bankTitleBar = client.getWidget(ComponentID.BANK_TITLE_BAR);
 		String newSetup = null;
 		if (bankTitleBar != null)
@@ -878,10 +885,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		LayoutableThing layoutable = getCurrentLayoutableThing();
 		if (layoutable == null) {
-			return;
-		}
-
-		if (client.getVarbitValue(Varbits.CURRENT_BANK_TAB) == 15) {
 			return;
 		}
 
