@@ -617,6 +617,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private String inventorySetup = null;
 	private void updateInventorySetupShown() {
+		if (client.getVarbitValue(Varbits.CURRENT_BANK_TAB) == 15 /* potion storage */) {
+			inventorySetup = null;
+			return;
+		}
+
 		Widget bankTitleBar = client.getWidget(ComponentID.BANK_TITLE_BAR);
 		String newSetup = null;
 		if (bankTitleBar != null)
