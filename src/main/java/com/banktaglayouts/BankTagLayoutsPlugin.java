@@ -617,11 +617,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private String inventorySetup = null;
 	private void updateInventorySetupShown() {
-		if (client.getVarbitValue(Varbits.CURRENT_BANK_TAB) == 15 /* potion storage */) {
-			inventorySetup = null;
-			return;
-		}
-
 		Widget bankTitleBar = client.getWidget(ComponentID.BANK_TITLE_BAR);
 		String newSetup = null;
 		if (bankTitleBar != null)
@@ -981,6 +976,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	LayoutableThing getCurrentLayoutableThing() {
 		boolean isBankTag = tabInterface.isActive();
 		if (!isBankTag && !(inventorySetup != null && config.useWithInventorySetups())) {
+			return null;
+		}
+		if (client.getVarbitValue(Varbits.CURRENT_BANK_TAB) == 15 /* potion storage */) {
 			return null;
 		}
 		String name = isBankTag ? tabInterface.getActiveTab().getTag() : inventorySetup;
