@@ -150,6 +150,17 @@ public interface BankTagLayoutsConfig extends Config {
 	}
 
 	@ConfigItem(
+			keyName = "addVariationsToEnd",
+			name = "Add Variations to End",
+			description = "Enabling this will add variations to the end of your layout instead of the front.",
+			position = 6,
+			section = autoLayout
+	)
+	default boolean addVariationsToEnd() {
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "showCoreRuneliteLayoutOptions",
 		name = "RuneLite layouts options",
 		description = "Shows RuneLite's layout options at the same time as bank tag layouts, e.g. on the tag tab right-click menu.",

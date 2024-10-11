@@ -115,6 +115,11 @@ public class Layout {
         return getFirstEmptyIndex(-1);
     }
 
+    public int getLastEmptyIndex() {
+        int maxIndex = getAllUsedIndexes().stream().max(Integer::compare).orElse(-1);
+        return getFirstEmptyIndex(maxIndex);
+    }
+
     public int getFirstEmptyIndex(int afterThisIndex) {
         List<Integer> indexes = new ArrayList<>(getAllUsedIndexes());
         indexes.sort(Integer::compare);
