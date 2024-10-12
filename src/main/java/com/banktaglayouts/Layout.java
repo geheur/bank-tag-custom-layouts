@@ -117,7 +117,15 @@ public class Layout {
 
     public int getLastEmptyIndex() {
         int maxIndex = getAllUsedIndexes().stream().max(Integer::compare).orElse(-1);
-        return getFirstEmptyIndex(maxIndex);
+        return maxIndex + 1;
+    }
+
+    public  int getFirstEmptyRow() {
+        int maxIndex = getAllUsedIndexes().stream().max(Integer::compare).orElse(-1);
+        maxIndex++;
+        while (maxIndex % 8 != 0)
+            maxIndex++;
+        return  maxIndex;
     }
 
     public int getFirstEmptyIndex(int afterThisIndex) {

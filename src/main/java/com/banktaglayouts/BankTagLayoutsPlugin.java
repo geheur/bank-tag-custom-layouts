@@ -1537,6 +1537,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			}
 		}
 
+		int afterIndex = config.addNewItemsToEnd() ? (layout.getFirstEmptyRow() - 1) : -1;
 		for (Integer variationBaseId : variantItemsInBank.keySet()) {
 			List<Widget> notYetPositionedWidgets = new ArrayList<>(variantItemsInBank.get(variationBaseId));
 
@@ -1565,7 +1566,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 					int itemId = notYetPositionedWidget.getItemId();
 					int layoutIndex = layout.getIndexForItem(itemId);
 					if (layoutIndex != -1) continue; // Prevents an issue where items with the same id that take up multiple bank slots, e.g. items that have their charges stored on the item, can be added into two slots during this stage.
-					int index = config.addNewItemsToEnd() ? layout.getLastEmptyIndex() : layout.getFirstEmptyIndex();
+					int index = layout.getFirstEmptyIndex(afterIndex);
 					layout.putItem(itemId, index);
 					log.debug("item " + itemNameWithId(itemId) + " assigned on pass 4 (assign to empty spot) to index " + index);
 					indexToWidget.put(index, notYetPositionedWidget);
