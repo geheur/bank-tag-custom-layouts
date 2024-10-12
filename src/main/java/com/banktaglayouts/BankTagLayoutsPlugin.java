@@ -70,7 +70,13 @@ import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
-import net.runelite.api.widgets.*;
+import net.runelite.api.widgets.ComponentID;
+import net.runelite.api.widgets.InterfaceID;
+import net.runelite.api.widgets.JavaScriptCallback;
+import net.runelite.api.widgets.Widget;
+import net.runelite.api.widgets.WidgetPositionMode;
+import net.runelite.api.widgets.WidgetType;
+import net.runelite.api.widgets.WidgetUtil;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
@@ -901,37 +907,37 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				.filter(bankItem -> !bankItem.isHidden() && bankItem.getItemId() >= 0)
 				.collect(Collectors.toList());
 
-		Collection<Integer> layoutItemIds = layout.getAllUsedItemIds();
-		for (Integer itemId : layoutItemIds) {
-			if (potionStorage.containsAndHasAny(itemId)) {
-				if(bankItems.stream().anyMatch(bankItem -> bankItem.getItemId() == itemId)){
-					// Second time we've seen this item, so it is already in the bank, no need to add a new one
-					// Just update the quantity.
-					Widget existing = bankItems.stream().filter(bankItem -> bankItem.getItemId() == itemId).findFirst().orElse(null);
-					existing.setItemQuantity(potionStorage.count(itemId));
-				}else{
-					// Re-use hidden bank items since I haven't found a way to create a widget
-					// We re-purpose the first hidden item we find.
-					// After the first pass, there will be an actual item in the bank representing this potion, so we can re-use that.
-					Widget potionWidget = Arrays.stream(bankContainer.getDynamicChildren())
-							.filter(bankItem -> bankItem.isHidden() || bankItem.getItemId() < 0)
-							.collect(Collectors.toList())
-							.stream().findFirst().get();
+        Collection<Integer> layoutItemIds = layout.getAllUsedItemIds();
+        for (Integer itemId : layoutItemIds) {
+            if (potionStorage.containsAndHasAny(itemId)) {
+                if (bankItems.stream().anyMatch(bankItem -> bankItem.getItemId() == itemId)) {
+                    // Second time we've seen this item, so it is already in the bank, no need to add a new one
+                    // Just update the quantity.
+                    Widget existing = bankItems.stream().filter(bankItem -> bankItem.getItemId() == itemId).findFirst().orElse(null);
+                    existing.setItemQuantity(potionStorage.count(itemId));
+                } else {
+                    // Re-use hidden bank items since I haven't found a way to create a widget
+                    // We re-purpose the first hidden item we find.
+                    // After the first pass, there will be an actual item in the bank representing this potion, so we can re-use that.
+                    Widget potionWidget = Arrays.stream(bankContainer.getDynamicChildren())
+                            .filter(bankItem -> bankItem.isHidden() || bankItem.getItemId() < 0)
+                            .collect(Collectors.toList())
+                            .stream().findFirst().get();
 
-					SetupMenuOptionsForPotion(potionWidget);
+                    SetupMenuOptionsForPotion(potionWidget);
 
-					ItemComposition def = client.getItemDefinition(itemId);
-					potionWidget.setItemId(itemId);
-					potionWidget.setItemQuantity(potionStorage.count(itemId));
-					potionWidget.setItemQuantityMode(ItemQuantityMode.STACKABLE);
-					potionWidget.setName("<col=ff9040>" + def.getName() + "</col>");
-					potionWidget.setHidden(false);
-					potionWidget.revalidate();
+                    ItemComposition def = client.getItemDefinition(itemId);
+                    potionWidget.setItemId(itemId);
+                    potionWidget.setItemQuantity(potionStorage.count(itemId));
+                    potionWidget.setItemQuantityMode(ItemQuantityMode.STACKABLE);
+                    potionWidget.setName("<col=ff9040>" + def.getName() + "</col>");
+                    potionWidget.setHidden(false);
+                    potionWidget.revalidate();
 
-					bankItems.add(potionWidget);
-				}
-			}
-		}
+                    bankItems.add(potionWidget);
+                }
+            }
+        }
 
 		if (!hasVanillaOrHubLayoutEnabled(layoutable)) {
 			for (Widget bankItem : bankItems) {
@@ -971,6 +977,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		log.debug("saved tag " + layoutable);
 	}
 
+	// Logic for setting up menu options for potion taken from the standard Bank Tags plugin
+	// See here https://github.com/runelite/runelite/blob/242cfa85298023d91bf52536eedc5394dec4a7f9/runelite-client/src/main/java/net/runelite/client/plugins/banktags/tabs/LayoutManager.java#L337
 	private void SetupMenuOptionsForPotion(Widget potionWidget) {
 		int quantityType = client.getVarbitValue(Varbits.BANK_QUANTITY_TYPE);
 		int requestQty = client.getVarbitValue(Varbits.BANK_REQUESTEDQUANTITY);
