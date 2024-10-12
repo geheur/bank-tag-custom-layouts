@@ -70,16 +70,11 @@ import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
-import net.runelite.api.widgets.ComponentID;
-import net.runelite.api.widgets.InterfaceID;
-import net.runelite.api.widgets.JavaScriptCallback;
-import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetPositionMode;
-import net.runelite.api.widgets.WidgetType;
-import net.runelite.api.widgets.WidgetUtil;
+import net.runelite.api.widgets.*;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
+import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.ProfileChanged;
@@ -155,6 +150,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Inject public Gson gson;
 	@Inject public UsedToBeReflection copyPaste;
 	@Inject public LayoutManager layoutManager;
+	@Inject public PotionStorage potionStorage;
+	@Inject public EventBus eventBus;
 
 	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
 	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
@@ -296,6 +293,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		spriteManager.addSpriteOverrides(Sprites.values());
 		mouseManager.registerMouseListener(this);
 		keyManager.registerKeyListener(antiDrag);
+		eventBus.register(potionStorage);
 
 		clientThread.invokeLater(() -> {
 			if (client.getGameState() == GameState.LOGGED_IN) {
@@ -304,6 +302,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				bankSearch.layoutBank();
 			}
 		});
+		potionStorage.cachePotions = true;
+		potionStorage.setOnPotionStorageUpdated(() -> applyCustomBankTagItemPositions(false));
 	}
 
 	@Override
@@ -313,6 +313,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		spriteManager.removeSpriteOverrides(Sprites.values());
 		mouseManager.unregisterMouseListener(this);
 		keyManager.unregisterKeyListener(antiDrag);
+		eventBus.unregister(potionStorage);
 
 		clientThread.invokeLater(() -> {
 			if (client.getGameState() == GameState.LOGGED_IN) {
@@ -895,9 +896,42 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return; // layout not enabled.
 		}
 
-		List<Widget> bankItems = Arrays.stream(client.getWidget(ComponentID.BANK_ITEM_CONTAINER).getDynamicChildren())
+		Widget bankContainer = client.getWidget(ComponentID.BANK_ITEM_CONTAINER);
+		List<Widget> bankItems = Arrays.stream(bankContainer.getDynamicChildren())
 				.filter(bankItem -> !bankItem.isHidden() && bankItem.getItemId() >= 0)
 				.collect(Collectors.toList());
+
+		Collection<Integer> layoutItemIds = layout.getAllUsedItemIds();
+		for (Integer itemId : layoutItemIds) {
+			if (potionStorage.containsAndHasAny(itemId)) {
+				if(bankItems.stream().anyMatch(bankItem -> bankItem.getItemId() == itemId)){
+					// Second time we've seen this item, so it is already in the bank, no need to add a new one
+					// Just update the quantity.
+					Widget existing = bankItems.stream().filter(bankItem -> bankItem.getItemId() == itemId).findFirst().orElse(null);
+					existing.setItemQuantity(potionStorage.count(itemId));
+				}else{
+					// Re-use hidden bank items since I haven't found a way to create a widget
+					// We re-purpose the first hidden item we find.
+					// After the first pass, there will be an actual item in the bank representing this potion, so we can re-use that.
+					Widget potionWidget = Arrays.stream(bankContainer.getDynamicChildren())
+							.filter(bankItem -> bankItem.isHidden() || bankItem.getItemId() < 0)
+							.collect(Collectors.toList())
+							.stream().findFirst().get();
+
+					SetupMenuOptionsForPotion(potionWidget);
+
+					ItemComposition def = client.getItemDefinition(itemId);
+					potionWidget.setItemId(itemId);
+					potionWidget.setItemQuantity(potionStorage.count(itemId));
+					potionWidget.setItemQuantityMode(ItemQuantityMode.STACKABLE);
+					potionWidget.setName("<col=ff9040>" + def.getName() + "</col>");
+					potionWidget.setHidden(false);
+					potionWidget.revalidate();
+
+					bankItems.add(potionWidget);
+				}
+			}
+		}
 
 		if (!hasVanillaOrHubLayoutEnabled(layoutable)) {
 			for (Widget bankItem : bankItems) {
@@ -935,6 +969,44 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		saveLayout(layoutable, layout);
 		log.debug("saved tag " + layoutable);
+	}
+
+	private void SetupMenuOptionsForPotion(Widget potionWidget) {
+		int quantityType = client.getVarbitValue(Varbits.BANK_QUANTITY_TYPE);
+		int requestQty = client.getVarbitValue(Varbits.BANK_REQUESTEDQUANTITY);
+		String suffix;
+		switch (quantityType) {
+			default:
+				suffix = "1";
+				break;
+			case 1:
+				suffix = "5";
+				break;
+			case 2:
+				suffix = "10";
+				break;
+			case 3:
+				suffix = Integer.toString(Math.max(1, requestQty));
+				break;
+			case 4:
+				suffix = "All";
+				break;
+		}
+
+		potionWidget.clearActions();
+
+		potionWidget.setAction(0, "Withdraw-" + suffix);
+		if (quantityType != 0) {
+			potionWidget.setAction(1, "Withdraw-1");
+		}
+		potionWidget.setAction(2, "Withdraw-5");
+		potionWidget.setAction(3, "Withdraw-10");
+		if (requestQty > 0) {
+			potionWidget.setAction(4, "Withdraw-" + requestQty);
+		}
+		potionWidget.setAction(5, "Withdraw-X");
+		potionWidget.setAction(6, "Withdraw-All");
+		potionWidget.setAction(7, "Withdraw-All-but-1");
 	}
 
 	/**
@@ -1157,8 +1229,29 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			}
 		}
 
+		addPotionMenuEntries(menuEntryAdded);
 		addFakeItemMenuEntries(menuEntryAdded);
 		addDuplicateItemMenuEntries(menuEntryAdded);
+	}
+
+	private void addPotionMenuEntries(MenuEntryAdded menuEntryAdded) {
+		LayoutableThing currentLayoutableThing = getCurrentLayoutableThing();
+		if (!config.showLayoutPlaceholders() || !hasLayoutEnabled(currentLayoutableThing)) {
+			return;
+		}
+		Layout layout = getBankOrder(currentLayoutableThing);
+
+		int index = getIndexForMousePosition(true);
+		if (index == -1) return;
+		int itemIdAtIndex = layout.getItemAtIndex(index);
+		if(itemIdAtIndex == -1) return;
+		if(potionStorage.count(itemIdAtIndex) <= 0) return;
+
+		int potStorageIndex = potionStorage.find(itemIdAtIndex);
+		potionStorage.prepareWidgets();
+		MenuEntry entry = menuEntryAdded.getMenuEntry();
+		entry.setParam1(ComponentID.BANK_POTIONSTORE_CONTENT);
+		entry.setParam0(potStorageIndex * PotionStorage.COMPONENTS_PER_POTION);
 	}
 
 	private void addBankTagTabMenuEntries()
