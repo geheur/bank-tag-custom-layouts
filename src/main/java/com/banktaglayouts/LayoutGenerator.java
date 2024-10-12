@@ -31,6 +31,11 @@ public class LayoutGenerator {
 			.map(itemId -> plugin.itemManager.canonicalize(itemId)) // Weight reducing items have different ids when equipped; this fixes that.
 			.collect(Collectors.toList());
 
+		if (layoutStyle == null)
+		{
+			return Layout.emptyLayout();
+		}
+
 		switch (layoutStyle){
 			case ZIGZAG:
 				return zigzagLayout(equippedItems, inventory, runePouch, additionalItems, currentLayout, duplicateLimit);
