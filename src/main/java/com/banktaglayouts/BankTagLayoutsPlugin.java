@@ -131,6 +131,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public static final String EXPORT_LAYOUT = "Export tag tab with layout";
 	public static final String REMOVE_FROM_LAYOUT_MENU_OPTION = "Remove-layout";
 	public static final String PREVIEW_AUTO_LAYOUT = "Preview auto layout";
+	public static final String SET_ZIGZAG = "Set zigzag";
+	public static final String SET_ZIGZAG_INVASIVE = "Set zigzag (Fresh)";
+	public static final String SET_PRESETS = "Set presets";
+	public static final String SET_PRESETS_INVASIVE = "Set presets (Fresh)";
+	public static final String RESET_LAYOUT = "Reset Layout";
 	public static final String DUPLICATE_ITEM = "Duplicate-item";
 	public static final String REMOVE_DUPLICATE_ITEM = "Remove-duplicate-item";
 
@@ -193,10 +198,38 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			showLayoutPreviewButton.setOriginalY(45);
 			showLayoutPreviewButton.setSpriteId(Sprites.AUTO_LAYOUT.getSpriteId());
 
-			showLayoutPreviewButton.setOnOpListener((JavaScriptCallback) (e) -> showLayoutPreview());
+			showLayoutPreviewButton.setOnOpListener((JavaScriptCallback) (e) ->
+					{
+						//action index + 1 = op
+						int op = e.getOp();
+						if (op == 1)
+						{
+							showLayoutPreview(BankTagLayoutsConfig.LayoutStyles.ZIGZAG, false);
+						}
+						else if (op == 2)
+						{
+							showLayoutPreview(BankTagLayoutsConfig.LayoutStyles.ZIGZAG, true);
+						}
+						if (op == 3)
+						{
+							showLayoutPreview(BankTagLayoutsConfig.LayoutStyles.PRESETS, false);
+						}
+						else if (op == 4)
+						{
+							showLayoutPreview(BankTagLayoutsConfig.LayoutStyles.PRESETS, true);
+						}
+						else
+						{
+							showLayoutPreview(null, true);
+						}
+					});
 			showLayoutPreviewButton.setHasListener(true);
 			showLayoutPreviewButton.revalidate();
-			showLayoutPreviewButton.setAction(0, PREVIEW_AUTO_LAYOUT);
+			showLayoutPreviewButton.setAction(0, SET_ZIGZAG);
+			showLayoutPreviewButton.setAction(1, SET_ZIGZAG_INVASIVE);
+			showLayoutPreviewButton.setAction(2, SET_PRESETS);
+			showLayoutPreviewButton.setAction(3, SET_PRESETS_INVASIVE);
+			showLayoutPreviewButton.setAction(4, RESET_LAYOUT);
 
 			applyLayoutPreviewButton = parent.createChild(-1, WidgetType.GRAPHIC);
 
@@ -491,7 +524,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private final InventorySetupsAdapter inventorySetupsAdapter = new InventorySetupsAdapter(this);
 
-	private void showLayoutPreview() {
+	private void showLayoutPreview(BankTagLayoutsConfig.LayoutStyles styleToUse, boolean invasive) {
 
 		if (isShowingPreview()) return;
 		LayoutableThing currentLayoutableThing = getCurrentLayoutableThing();
@@ -518,14 +551,14 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			Layout currentLayout = getBankOrderNonPreview(currentLayoutableThing);
 			if (currentLayout == null) currentLayout = Layout.emptyLayout();
 
-			previewLayout = layoutGenerator.basicBankTagLayout(equippedGear, inventory, config.autoLayoutIncludeRunePouchRunes() ? getRunePouchRunes() : Collections.emptyList(), Collections.emptyList(), currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
+			previewLayout = layoutGenerator.basicBankTagLayout(equippedGear, inventory, config.autoLayoutIncludeRunePouchRunes() ? getRunePouchRunes() : Collections.emptyList(), Collections.emptyList(), invasive ? Layout.emptyLayout() : currentLayout, getAutoLayoutDuplicateLimit(), styleToUse);
 		} else {
 			InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(currentLayoutableThing.name);
 
 			Layout currentLayout = getBankOrderNonPreview(currentLayoutableThing);
 			if (currentLayout == null) currentLayout = Layout.emptyLayout();
 
-			previewLayout = layoutGenerator.basicInventorySetupsLayout(inventorySetup, currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle(), config.autoLayoutIncludeRunePouchRunes());
+			previewLayout = layoutGenerator.basicInventorySetupsLayout(inventorySetup, invasive ? Layout.emptyLayout() : currentLayout, getAutoLayoutDuplicateLimit(), styleToUse, config.autoLayoutIncludeRunePouchRunes());
 		}
 
 		hideLayoutPreviewButtons(false);
@@ -1040,7 +1073,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 				if (indexForItem == -1) {
 					// The item is not in the layout.
-					indexForItem = layout.getFirstEmptyIndex();
+					indexForItem = config.addNewItemsToEnd() ? layout.getLastEmptyIndex() : layout.getFirstEmptyIndex();
 					layout.putItem(itemId, indexForItem);
 				}
 				indexToWidget.put(indexForItem, bankItem);
@@ -1423,7 +1456,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		} else if (IMPORT_LAYOUT.equals(menuOption)) {
 			importLayout();
 		} else if (PREVIEW_AUTO_LAYOUT.equals(menuOption)) {
-			showLayoutPreview();
+			showLayoutPreview(config.autoLayoutStyle(), false);
 		} else if (DUPLICATE_ITEM.equals(menuOption)) {
 			duplicateItem(event.getParam0());
 		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
@@ -1504,6 +1537,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			}
 		}
 
+		int afterIndex = config.addNewItemsToEnd() ? (layout.getFirstEmptyRow() - 1) : -1;
 		for (Integer variationBaseId : variantItemsInBank.keySet()) {
 			List<Widget> notYetPositionedWidgets = new ArrayList<>(variantItemsInBank.get(variationBaseId));
 
@@ -1532,7 +1566,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 					int itemId = notYetPositionedWidget.getItemId();
 					int layoutIndex = layout.getIndexForItem(itemId);
 					if (layoutIndex != -1) continue; // Prevents an issue where items with the same id that take up multiple bank slots, e.g. items that have their charges stored on the item, can be added into two slots during this stage.
-					int index = layout.getFirstEmptyIndex();
+					int index = layout.getFirstEmptyIndex(afterIndex);
 					layout.putItem(itemId, index);
 					log.debug("item " + itemNameWithId(itemId) + " assigned on pass 4 (assign to empty spot) to index " + index);
 					indexToWidget.put(index, notYetPositionedWidget);
@@ -1909,7 +1943,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		for (MenuEntry entry : menuEntries)
 		{
 			// checking the type is kinda hacky because really both preview auto layout entries should have the runelite id... but it works.
-			if (entry.getOption().equals(PREVIEW_AUTO_LAYOUT) && entry.getType() != MenuAction.RUNELITE)
+			if (entry.getOption().equals(SET_ZIGZAG) && entry.getType() != MenuAction.RUNELITE)
 			{
 				event.setForceRightClick(true);
 				return;

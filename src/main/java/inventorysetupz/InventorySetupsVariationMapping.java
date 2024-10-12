@@ -142,6 +142,10 @@ public class InventorySetupsVariationMapping
 		mappings.put(GHOMMALS_AVERNIC_DEFENDER_5_L, AVERNIC_DEFENDER);
 		mappings.put(GHOMMALS_AVERNIC_DEFENDER_6, AVERNIC_DEFENDER);
 		mappings.put(GHOMMALS_AVERNIC_DEFENDER_6_L, AVERNIC_DEFENDER);
+
+		// Blazing blowpipe -> toxic blowpipe
+		mappings.put(BLAZING_BLOWPIPE_EMPTY, TOXIC_BLOWPIPE_EMPTY);
+		mappings.put(BLAZING_BLOWPIPE, TOXIC_BLOWPIPE);
 	}
 
 }

@@ -150,6 +150,17 @@ public interface BankTagLayoutsConfig extends Config {
 	}
 
 	@ConfigItem(
+			keyName = "addNewItemsToEnd",
+			name = "Add New Items to End",
+			description = "Enabling this will add new items and variations to the end of your layout instead of the beginning.",
+			position = 6,
+			section = autoLayout
+	)
+	default boolean addNewItemsToEnd() {
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "showCoreRuneliteLayoutOptions",
 		name = "RuneLite layouts options",
 		description = "Shows RuneLite's layout options at the same time as bank tag layouts, e.g. on the tag tab right-click menu.",
