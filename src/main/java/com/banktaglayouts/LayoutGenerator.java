@@ -28,8 +28,11 @@ public class LayoutGenerator {
 			runePouch = null;
 		}
 		equippedItems = equippedItems.stream()
-			.map(itemId -> plugin.itemManager.canonicalize(itemId)) // Weight reducing items have different ids when equipped; this fixes that.
-			.collect(Collectors.toList());
+				.map(itemId -> plugin.itemManager.canonicalize(itemId)) // Weight reducing items have different ids when equipped; this fixes that.
+				.collect(Collectors.toList());
+		inventory = inventory.stream()
+				.map(itemId -> plugin.itemManager.canonicalize(itemId)) // You can't have noted items in your bank
+				.collect(Collectors.toList());
 
 		if (layoutStyle == null)
 		{
