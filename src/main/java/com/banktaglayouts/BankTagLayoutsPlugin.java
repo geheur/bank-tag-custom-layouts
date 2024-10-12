@@ -1073,7 +1073,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 				if (indexForItem == -1) {
 					// The item is not in the layout.
-					indexForItem = config.addVariationsToEnd() ? layout.getLastEmptyIndex() : layout.getFirstEmptyIndex();
+					indexForItem = config.addNewItemsToEnd() ? layout.getLastEmptyIndex() : layout.getFirstEmptyIndex();
 					layout.putItem(itemId, indexForItem);
 				}
 				indexToWidget.put(indexForItem, bankItem);
@@ -1565,7 +1565,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 					int itemId = notYetPositionedWidget.getItemId();
 					int layoutIndex = layout.getIndexForItem(itemId);
 					if (layoutIndex != -1) continue; // Prevents an issue where items with the same id that take up multiple bank slots, e.g. items that have their charges stored on the item, can be added into two slots during this stage.
-					int index = config.addVariationsToEnd() ? layout.getLastEmptyIndex() : layout.getFirstEmptyIndex();
+					int index = config.addNewItemsToEnd() ? layout.getLastEmptyIndex() : layout.getFirstEmptyIndex();
 					layout.putItem(itemId, index);
 					log.debug("item " + itemNameWithId(itemId) + " assigned on pass 4 (assign to empty spot) to index " + index);
 					indexToWidget.put(index, notYetPositionedWidget);

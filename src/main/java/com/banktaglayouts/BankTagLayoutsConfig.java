@@ -150,13 +150,13 @@ public interface BankTagLayoutsConfig extends Config {
 	}
 
 	@ConfigItem(
-			keyName = "addVariationsToEnd",
-			name = "Add Variations to End",
-			description = "Enabling this will add variations to the end of your layout instead of the front.",
+			keyName = "addNewItemsToEnd",
+			name = "Add New Items to End",
+			description = "Enabling this will add new items and variations to the end of your layout instead of the beginning.",
 			position = 6,
 			section = autoLayout
 	)
-	default boolean addVariationsToEnd() {
+	default boolean addNewItemsToEnd() {
 		return false;
 	}
 
