@@ -1254,7 +1254,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (index == -1) return;
 		int itemIdAtIndex = layout.getItemAtIndex(index);
 		if(itemIdAtIndex == -1) return;
-		if(potionStorage.count(itemIdAtIndex) <= 0) return;
+		if(!potionStorage.containsAndHasAny(itemIdAtIndex)) return;
 
 		int potStorageIndex = potionStorage.find(itemIdAtIndex);
 		potionStorage.prepareWidgets();
