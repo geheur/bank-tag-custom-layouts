@@ -309,7 +309,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				bankSearch.layoutBank();
 			}
 		});
-		potionStorage.cachePotions = true;
+
 		potionStorage.setOnPotionStorageUpdated(() -> applyCustomBankTagItemPositions(false));
 	}
 
@@ -671,6 +671,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (layout == null) {
 			return;
 		}
+
+		// Trigger potion storage caching after the bank has been built
+		potionStorage.cachePotions = true;
 
 		int maxIndex = layout.getAllUsedIndexes().stream().max(Integer::compare).orElse(0);
 		int height = getYForIndex(maxIndex) + BANK_ITEM_HEIGHT;
