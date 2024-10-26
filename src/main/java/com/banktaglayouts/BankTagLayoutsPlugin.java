@@ -980,7 +980,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	LayoutableThing getCurrentLayoutableThing() {
 		String activeTag = tabInterface.getActiveTag();
-		boolean isBankTag = activeTag != null;
+		boolean isBankTag = activeTag != null && !activeTag.equals("tagtabs");
 		if (!isBankTag && !(inventorySetup != null && config.useWithInventorySetups())) {
 			return null;
 		}
