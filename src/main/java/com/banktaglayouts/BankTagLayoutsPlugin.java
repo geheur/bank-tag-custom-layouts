@@ -247,7 +247,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		layoutManager.registerAutoLayout(this, "Zigzag", new AutoLayout()
 		{
 			@Override
-			public net.runelite.client.plugins.banktags.tabs.Layout generateLayout(TagTab tagTab)
+			public net.runelite.client.plugins.banktags.tabs.Layout generateLayout(net.runelite.client.plugins.banktags.tabs.Layout currentLayout)
 			{
 				List<Integer> equippedGear = getEquippedGear();
 				List<Integer> inventory = getInventory();
@@ -256,7 +256,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 					return null;
 				}
 
-				net.runelite.client.plugins.banktags.tabs.Layout currentLayout = tagTab.getLayout();
 //				System.out.println("=============layout:");
 				Layout l = new Layout();
 				for (int i = 0; i < currentLayout.getLayout().length; i++)
@@ -275,7 +274,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				}
 
 				Layout previewLayout = layoutGenerator.basicBankTagLayout(equippedGear, inventory, config.autoLayoutIncludeRunePouchRunes() ? getRunePouchRunes() : Collections.emptyList(), Collections.emptyList(), l, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
-				net.runelite.client.plugins.banktags.tabs.Layout l2 = new net.runelite.client.plugins.banktags.tabs.Layout();
+				net.runelite.client.plugins.banktags.tabs.Layout l2 = new net.runelite.client.plugins.banktags.tabs.Layout(currentLayout.getTag());
 				for (Map.Entry<Integer, Integer> pair : previewLayout.allPairs())
 				{
 					l2.setItemAtPos(pair.getValue(), pair.getKey());
@@ -786,7 +785,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		boolean successful = importBankTag(name, tagString);
 		if (!successful) return;
 
-		tabManager.find(name).setLayout(null); // disable vanilla layout
+		layoutManager.saveLayout(new net.runelite.client.plugins.banktags.tabs.Layout(name, new int[0])); // disable vanilla layout
 		saveLayout(LayoutableThing.bankTag(name), layout);
 
 		chatMessage("Imported layout-ed tag tab \"" + name + "\"");
@@ -849,7 +848,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	private void enableLayout(LayoutableThing layoutable) {
 		TagTab tagTab = tabManager.find(layoutable.name);
-		if (tagTab.hasLayout()) {
+		net.runelite.client.plugins.banktags.tabs.Layout layout = layoutManager.loadLayout(layoutable.name);
+		if (layout != null) {
 			chatErrorMessage("This tag is using the new non-plugin-hub version of bank tag layouts. Disable it before enabling the plugin-hub version, by right-clicking the tag tab and selecting \"Disable layout\".");
 			return;
 		}
@@ -865,7 +865,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 						clientThread.invoke(() ->
 						{
 							configManager.setConfiguration(CONFIG_GROUP, LAYOUT_CONFIG_KEY_PREFIX + bankTagName, LAYOUT_EXPLICITLY_DISABLED);
-							if (tabInterface.getActiveTab() != null && bankTagName.equals(tabInterface.getActiveTab().getTag())) {
+							if (tabInterface.getActiveTag() != null && bankTagName.equals(tabInterface.getActiveTag())) {
 								bankSearch.layoutBank();
 							}
 						})
@@ -979,20 +979,21 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	LayoutableThing getCurrentLayoutableThing() {
-		boolean isBankTag = tabInterface.isActive();
+		String activeTag = tabInterface.getActiveTag();
+		boolean isBankTag = activeTag != null;
 		if (!isBankTag && !(inventorySetup != null && config.useWithInventorySetups())) {
 			return null;
 		}
-		String name = isBankTag ? tabInterface.getActiveTab().getTag() : inventorySetup;
+		String name = isBankTag ? activeTag : inventorySetup;
 		return new LayoutableThing(name, isBankTag);
 	}
 
 	private void bankReorderWarning(ScriptEvent ev) {
 		if (
 				config.warnForAccidentalBankReorder()
-						&& ev.getSource().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.isActive()
+						&& ev.getSource().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.getActiveTag() != null
 						&& client.getDraggedOnWidget() != null
-						&& client.getDraggedOnWidget().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.isActive()
+						&& client.getDraggedOnWidget().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.getActiveTag() != null
 						&& !hasVanillaOrHubLayoutEnabled(getCurrentLayoutableThing())
 						&& !Boolean.parseBoolean(configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, "preventTagTabDrags"))
 		) {
@@ -1615,7 +1616,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (layoutable == null) return false;
 		if (isShowingPreview()) return true;
 		TagTab tagTab = tabManager.find(layoutable.name);
-		if (layoutable.isBankTab && tagTab != null && tagTab.hasLayout()) return false;
+		if (layoutable.isBankTab && tagTab != null && hasRuneliteLayout(layoutable.name)) return false;
 
 		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
 		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
@@ -1626,7 +1627,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (layoutable == null) return false;
 		if (isShowingPreview()) return true;
 		TagTab tagTab = tabManager.find(layoutable.name);
-		if (tagTab != null && tagTab.hasLayout()) return true;
+		if (tagTab != null && hasRuneliteLayout(layoutable.name)) return true;
 
 		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
 		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
@@ -1636,7 +1637,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public boolean isVanillaLayoutEnabled(LayoutableThing layoutable) {
 		if (layoutable == null) return false;
 		TagTab tagTab = tabManager.find(layoutable.name);
-		return tagTab != null && tagTab.hasLayout();
+		return tagTab != null && hasRuneliteLayout(layoutable.name);
+	}
+
+	public boolean hasRuneliteLayout(String tag) {
+		return this.configManager.getConfiguration("banktags", "layout_" + Text.standardize(tag)) != null;
 	}
 
 	/**

@@ -42,31 +42,31 @@ public class BankTagLayoutsToolsPlugin extends Plugin
 	public void onCommandExecuted(CommandExecuted commandExecuted) {
 		if ("adamlayouts".equals(commandExecuted.getCommand())) {
 
-			BankTag bankTag = new BankTag()
-			{
-				@Override
-				public boolean contains(int i)
-				{
-					if (i == 11335 || i == 15584 || i == 7449) return true;
-					return false;
-				}
-
-				@Override
-				public Layout layout() {
-					Layout layout = new Layout();
-					layout.setItemAtPos(11335, 1);
-					layout.setItemAtPos(7449, 8);
-					return layout;
-				}
-			};
+//			BankTag bankTag = new BankTag()
+//			{
+//				@Override
+//				public boolean contains(int i)
+//				{
+//					if (i == 11335 || i == 15584 || i == 7449) return true;
+//					return false;
+//				}
+//
+//				@Override
+//				public Layout layout() {
+//					Layout layout = new Layout();
+//					layout.setItemAtPos(11335, 1);
+//					layout.setItemAtPos(7449, 8);
+//					return layout;
+//				}
+//			};
 //			plugin.bankTagsService.openBankTag(bankTag);
 //			plugin.tagManager.registerTag("mytag", bankTag);
 //			TagTab tagTab = new TagTab();
 //			tagTab.setTag("mytag");
 ////			tagTab.setLayout(layout);
-			plugin.clientThread.invokeLater(() -> {
-				plugin.bankTagsService.openBankTag(bankTag);
-			});
+//			plugin.clientThread.invokeLater(() -> {
+//				plugin.bankTagsService.openBankTag(bankTag);
+//			});
 		}
 		if ("clearversion".equals(commandExecuted.getCommand())) {
 			configManager.unsetConfiguration(plugin.CONFIG_GROUP, "version");
