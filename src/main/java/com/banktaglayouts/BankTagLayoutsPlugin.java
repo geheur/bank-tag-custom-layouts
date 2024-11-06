@@ -980,6 +980,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	LayoutableThing getCurrentLayoutableThing() {
 		String activeTag = tabInterface.getActiveTag();
+
+		// This completely disables Inventory Setups integration.
+		// Inventory Setups now uses core Bank Tags.
+		if (activeTag != null && activeTag.startsWith("_invSetup_")) return null;
+
 		boolean isBankTag = activeTag != null && !activeTag.equals("tagtabs");
 		if (!isBankTag && !(inventorySetup != null && config.useWithInventorySetups())) {
 			return null;
