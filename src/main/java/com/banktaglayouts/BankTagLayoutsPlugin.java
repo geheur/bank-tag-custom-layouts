@@ -105,6 +105,7 @@ import net.runelite.client.plugins.banktags.tabs.TagTab;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.Text;
+import net.runelite.client.game.chatbox.ChatboxItemSearch;
 
 @Slf4j
 @PluginDescriptor(
@@ -133,6 +134,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public static final String PREVIEW_AUTO_LAYOUT = "Preview auto layout";
 	public static final String DUPLICATE_ITEM = "Duplicate-item";
 	public static final String REMOVE_DUPLICATE_ITEM = "Remove-duplicate-item";
+	public static final String ADD_ITEM_BY_SEARCH = "Add item to layout";
 
 	public static final int BANK_ITEM_WIDTH = 36;
 	public static final int BANK_ITEM_HEIGHT = 32;
@@ -155,6 +157,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Inject public Gson gson;
 	@Inject public UsedToBeReflection copyPaste;
 	@Inject public LayoutManager layoutManager;
+	@Inject public ChatboxItemSearch itemSearch;
 
 	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
 	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
@@ -1206,6 +1209,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 			if (hasLayoutEnabled(layoutable)) {
 				addEntry(bankTagName, EXPORT_LAYOUT);
+				addEntry(bankTagName, ADD_ITEM_BY_SEARCH);
 			}
 
 			addEntry(bankTagName, hasLayoutEnabled(layoutable) ? DISABLE_LAYOUT : ENABLE_LAYOUT);
@@ -1434,6 +1438,28 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			duplicateItem(event.getParam0());
 		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
 			removeFromLayout(event.getParam0());
+		} else if (ADD_ITEM_BY_SEARCH.equals(menuOption)) {
+			String tagName = menuTarget;
+			itemSearch
+				.tooltipText("Add to " + tagName)
+				.onItemSelected((pickedId) -> {
+						clientThread.invokeLater(() -> {
+								int itemId = itemManager.canonicalize(pickedId);
+								tagManager.addTag(itemId, tagName, false);
+
+								LayoutableThing layoutable = LayoutableThing.bankTag(tagName);
+								Layout layout = getBankOrder(layoutable);
+								if (layout == null) layout = Layout.emptyLayout();
+
+								int index = layout.getFirstEmptyIndex();
+								layout.putItem(itemId, index);
+								saveLayout(layoutable, layout);
+
+								// refresh bank UI
+								applyCustomBankTagItemPositions();
+						});
+				})
+				.build();
 		} else {
 			consume = false;
 		}
