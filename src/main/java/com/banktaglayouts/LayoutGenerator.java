@@ -1,7 +1,5 @@
 package com.banktaglayouts;
 
-import inventorysetupz.InventorySetup;
-import inventorysetupz.InventorySetupsItem;
 import java.util.*;
 
 import lombok.RequiredArgsConstructor;
@@ -46,14 +44,6 @@ public class LayoutGenerator {
 		Collection<Integer> runePouchVariations = ItemVariationMapping.getVariations(ItemID.RUNE_POUCH);
 		Collection<Integer> divineRunePouchVariations = ItemVariationMapping.getVariations(ItemID.DIVINE_RUNE_POUCH);
 		return inventory.stream().filter(itemId -> runePouchVariations.contains(itemId) || divineRunePouchVariations.contains(itemId)).findAny().isPresent();
-	}
-
-	public Layout basicInventorySetupsLayout(InventorySetup inventorySetup, Layout currentLayout, int duplicateLimit, BankTagLayoutsConfig.LayoutStyles layoutStyle, boolean includeRunepouchRunes) {
-		List<Integer> equippedGear = inventorySetup.getEquipment() == null ? Collections.emptyList() : inventorySetup.getEquipment().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
-		List<Integer> inventory = inventorySetup.getInventory() == null ? Collections.emptyList() : inventorySetup.getInventory().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
-		List<Integer> runePouchRunes = includeRunepouchRunes ? inventorySetup.getRune_pouch() == null ? Collections.emptyList() : inventorySetup.getRune_pouch().stream().map(InventorySetupsItem::getId).collect(Collectors.toList()) : Collections.emptyList();
-		List<Integer> additionalItems = inventorySetup.getAdditionalFilteredItems() == null ? Collections.emptyList() : inventorySetup.getAdditionalFilteredItems().values().stream().map(InventorySetupsItem::getId).collect(Collectors.toList());
-		return generateLayout(equippedGear, inventory, runePouchRunes, additionalItems, currentLayout, duplicateLimit, layoutStyle);
 	}
 
 	public Layout presetsLayout(List<Integer> equippedItems, List<Integer> inventory, List<Integer> runePouch, List<Integer> additionalItems, Layout currentLayout) {

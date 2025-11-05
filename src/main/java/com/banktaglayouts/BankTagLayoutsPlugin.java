@@ -1,6 +1,5 @@
 package com.banktaglayouts;
 
-import com.banktaglayouts.invsetupsstuff.InventorySetupsAdapter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.LinkedListMultimap;
@@ -8,7 +7,6 @@ import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.Runnables;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
-import inventorysetupz.InventorySetup;
 import java.awt.Color;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
@@ -488,8 +486,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	private Layout previewLayout = null;
 	private LayoutableThing previewLayoutable = null;
 
-	private final InventorySetupsAdapter inventorySetupsAdapter = new InventorySetupsAdapter(this);
-
 	private void showLayoutPreview() {
 
 		if (isShowingPreview()) return;
@@ -519,12 +515,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 			previewLayout = layoutGenerator.basicBankTagLayout(equippedGear, inventory, config.autoLayoutIncludeRunePouchRunes() ? getRunePouchRunes() : Collections.emptyList(), Collections.emptyList(), currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle());
 		} else {
-			InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(currentLayoutableThing.name);
-
-			Layout currentLayout = getBankOrderNonPreview(currentLayoutableThing);
-			if (currentLayout == null) currentLayout = Layout.emptyLayout();
-
-			previewLayout = layoutGenerator.basicInventorySetupsLayout(inventorySetup, currentLayout, getAutoLayoutDuplicateLimit(), config.autoLayoutStyle(), config.autoLayoutIncludeRunePouchRunes());
+			throw new UnsupportedOperationException();
 		}
 
 		hideLayoutPreviewButtons(false);
@@ -1470,8 +1461,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 		else
 		{
-			InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(layoutable.name);
-			containsId = id -> inventorySetupsAdapter.setupContainsItem(inventorySetup, id);
+			throw new UnsupportedOperationException();
 		}
 
 		Iterator<Map.Entry<Integer, Integer>> iter = layout.allPairsIterator();
@@ -1671,10 +1661,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			if (layoutable.isBankTab() && !config.layoutEnabledByDefault() || layoutable.isInventorySetup() && !config.useWithInventorySetups()) {
 				return null;
 			} else if (layoutable.isInventorySetup()) {
-				// Inventory setups by default have an equipment and inventory order, so lay it out automatically if this
-				// is the first time viewing the setup with bank tag layouts.
-				InventorySetup inventorySetup = inventorySetupsAdapter.getInventorySetup(layoutable.name);
-				return layoutGenerator.basicInventorySetupsLayout(inventorySetup, Layout.emptyLayout(), getAutoLayoutDuplicateLimit(), config.autoLayoutStyle(), config.autoLayoutIncludeRunePouchRunes());
+				throw new UnsupportedOperationException();
 			}
 
 			configuration = "";
