@@ -196,9 +196,8 @@ public class Layout {
 
     public void insertBlankRow(int startIndex)
     {
-        int rowStart = (startIndex / 8) * 8;
+        int rowStart = ((startIndex / 8) + 1) * 8;
 
-        // Move everything down by one row (iterate descending to avoid overwrites)
         layoutMap.keySet().stream()
                 .sorted(Comparator.reverseOrder())
                 .forEach(index ->
