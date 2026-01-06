@@ -2,13 +2,7 @@ package com.banktaglayouts;
 
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -199,4 +193,56 @@ public class Layout {
 
         putItem(itemIdAtIndex, duplicatedItemIndex);
     }
+
+    public void insertBlankRow(int row)
+    {
+        int rowStart = row * 8;
+
+        layoutMap.keySet().stream()
+                .sorted(Comparator.reverseOrder())
+                .forEach(index ->
+                {
+                    if (index >= rowStart)
+                    {
+                        int itemId = layoutMap.remove(index);
+                        layoutMap.put(index + 8, itemId);
+                    }
+                });
+    }
+
+    public void removeBlankRow(int row)
+    {
+        int rowStart = row * 8;
+
+        layoutMap.keySet().stream()
+                .sorted(Comparator.naturalOrder())
+                .forEach(i ->
+                {
+                    if (i >= rowStart + 8)
+                    {
+                        int itemId = layoutMap.remove(i);
+                        layoutMap.put(i - 8, itemId);
+                    }
+                });
+    }
+
+
+    public boolean isRowEmpty(int row)
+    {
+        int rowStart = row * 8;
+        int rowEnd = rowStart + 8;
+
+        for (int i = rowStart; i < rowEnd; i++)
+        {
+            if (layoutMap.containsKey(i))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+	public int rowCount() {
+		return (layoutMap.keySet().stream().max(Integer::compare).orElse(-8) + 8) / 8;
+	}
 }

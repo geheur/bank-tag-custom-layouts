@@ -5,6 +5,7 @@ import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
+import net.runelite.client.config.Keybind;
 
 @ConfigGroup("banktaglayouts")
 public interface BankTagLayoutsConfig extends Config {
@@ -99,16 +100,6 @@ public interface BankTagLayoutsConfig extends Config {
 	}
 
 	@ConfigItem(
-		keyName = "shiftModifierForExtraBankItemOptions",
-		name = "Require Shift key for extra bank item options",
-		description = "When enabled, the menu entries for adding duplicate items aren't shown unless shift is held when right-clicking",
-		position = 7
-	)
-	default boolean shiftModifierForExtraBankItemOptions() {
-		return false;
-	}
-
-	@ConfigItem(
 		keyName = "updateMessages",
 		name = "Plugin update message",
 		description = "Show a message about new features when the plugin updates.",
@@ -179,5 +170,73 @@ public interface BankTagLayoutsConfig extends Config {
 	)
 	default boolean showAutoLayoutButton() {
 		return true;
+	}
+
+	@ConfigSection(name = "Menu entries", description = "", position = 200) String menuEntriesSection = "menuEntriesSection";
+
+	@ConfigItem(
+		keyName = "shiftModifierForExtraBankItemOptions",
+		name = "Require Shift key for extra bank item options",
+		description = "When enabled, the menu entries for duplicate items and other right-click menu entries aren't shown unless shift is held when right-clicking",
+		section = menuEntriesSection,
+		position = 1
+	)
+	default boolean shiftModifierForExtraBankItemOptions() {
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "showAddItemEntries",
+		name = "Add item menu",
+		description = "Show add item when right-clicking in empty spaces.",
+		section = menuEntriesSection,
+		position = 2
+	)
+	default boolean showAddItemEntries() {
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "addItemKeybind",
+		name = "Add item swap",
+		description = "Hold to left-click add item in empty spaces.",
+		section = menuEntriesSection,
+		position = 3
+	)
+	default Keybind addItemKeybind() {
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = "showRowMenuEntries",
+		name = "Add/Remove row menus",
+		description = "Show add/remove empty row menus when right-clicking not on an item.",
+		section = menuEntriesSection,
+		position = 4
+	)
+	default boolean showRowMenuEntries() {
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "addRowBelowKeybind",
+		name = "Add row swap",
+		description = "Hold to left-click to add row. You can set this to the same as Remove row.",
+		section = menuEntriesSection,
+		position = 5
+	)
+	default Keybind addRowBelowKeybind() {
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = "removeRowKeybind",
+		name = "Remove row swap",
+		description = "Hold to left-click to add row. You can set this to the same as Add row.",
+		section = menuEntriesSection,
+		position = 6
+	)
+	default Keybind removeRowKeybind() {
+		return Keybind.NOT_SET;
 	}
 }

@@ -111,4 +111,11 @@ public class AntiDragPluginUtil implements KeyListener {
             shiftDown = false;
         }
     }
+
+	public void reset() {
+		ctrlDown = false;
+		shiftDown = false;
+		earlyAllowDrag = false;
+		dragStart = -1;
+	}
 }
