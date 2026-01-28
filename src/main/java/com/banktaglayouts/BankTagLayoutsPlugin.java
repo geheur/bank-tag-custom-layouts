@@ -658,8 +658,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		int height = getYForIndex(maxIndex) + BANK_ITEM_HEIGHT;
 
 		// This is prior to bankmain_finishbuilding running, so the arguments are still on the stack. Overwrite
-		// argument int12 (7 from the end) which is the height passed to if_setscrollsize
-		client.getIntStack()[client.getIntStackSize() - 7] = height;
+		// argument int13 (9 from the end) which is the height passed to if_setscrollsize
+		client.getIntStack()[client.getIntStackSize() - 9] = height;
 	}
 
 	@Subscribe(priority = -1f) // I want to run after the Bank Tags plugin does, since it will interfere with the layout-ing if hiding tab separators is enabled.

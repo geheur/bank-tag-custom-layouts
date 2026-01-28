@@ -28,7 +28,7 @@ dependencies {
 
 group = 'com.banktaglayouts'
 // don't forget to check inventory setups!
-version = '1.4.34'
+version = '1.4.35'
 sourceCompatibility = '1.8'
 
 tasks.withType(JavaCompile) {
