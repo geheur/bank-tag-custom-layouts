@@ -1,5 +1,6 @@
 package com.banktaglayouts;
 
+import lombok.RequiredArgsConstructor;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -7,8 +8,55 @@ import net.runelite.client.config.ConfigSection;
 
 @ConfigGroup("banktaglayouts")
 public interface BankTagLayoutsConfig extends Config {
-    @ConfigItem(
-            keyName = "layoutEnabledByDefault",
+	@ConfigItem(
+		keyName = "void1",
+		name = "<html>In 2025, the built-in bank tags plugin<br>added its own layout feature very<br>similar to this plugin's, and adding<br>potion storage. Decide which to use:",
+		description = "",
+		position = -30
+	)
+	default void void1() { }
+
+	@RequiredArgsConstructor
+	enum WhichPlugin {
+		BOTH("Show both options"),
+		HUB("This plugin (hub) only"),
+		CORE("Built-in layouts only");
+		final String name;
+		@Override
+		public String toString() {
+			return name;
+		}
+	}
+	@ConfigItem(
+		keyName = "whichPlugin",
+		name = "",
+		description = "",
+		position = -20
+	)
+	default WhichPlugin whichPlugin() {
+		return WhichPlugin.BOTH;
+	}
+
+	@ConfigItem(
+		keyName = "convertAll",
+		name = "Automatically convert my layouts",
+		description = "Convert all tabs to your choice above (unless it's Show both options).<br>You can also individually convert tag tabs by right-clicking them.",
+		position = -15
+	)
+	default boolean convertAll() {
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "void2",
+		name = "<html>- Inventory Setups users can ignore<br>this as it no longer uses this plugin.<br>- Zigzag users who use built-in bank<br>tags should not uninstall this plugin or<br>they will lose zigzag layout.",
+		description = "",
+		position = -10
+	)
+	default void void2() { }
+
+	@ConfigItem(
+		keyName = "layoutEnabledByDefault",
             name = "Enable layout by default",
             description = "When opening a tag tab without layout enabled, automatically enable layout on the tab.",
             position = 1
@@ -148,15 +196,5 @@ public interface BankTagLayoutsConfig extends Config {
 	)
 	default boolean showAutoLayoutButton() {
 		return true;
-	}
-
-	@ConfigItem(
-		keyName = "showCoreRuneliteLayoutOptions",
-		name = "RuneLite layouts options",
-		description = "Shows RuneLite's layout options at the same time as bank tag layouts, e.g. on the tag tab right-click menu.",
-		position = 20
-	)
-	default boolean showCoreRuneliteLayoutOptions() {
-		return false;
 	}
 }

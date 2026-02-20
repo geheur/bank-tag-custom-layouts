@@ -1,5 +1,9 @@
 package com.banktaglayouts;
 
+import com.banktaglayouts.BankTagLayoutsConfig.WhichPlugin;
+import static com.banktaglayouts.BankTagLayoutsConfig.WhichPlugin.BOTH;
+import static com.banktaglayouts.BankTagLayoutsConfig.WhichPlugin.CORE;
+import static com.banktaglayouts.BankTagLayoutsConfig.WhichPlugin.HUB;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.LinkedListMultimap;
@@ -8,6 +12,7 @@ import com.google.common.util.concurrent.Runnables;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
@@ -35,6 +40,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.RequiredArgsConstructor;
@@ -330,12 +337,34 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				clientThread.invokeLater(() -> applyCustomBankTagItemPositions());
 			} else if ("showAutoLayoutButton".equals(event.getKey())) {
 				clientThread.invokeLater(this::updateButton);
+			} else if ("whichPlugin".equals(event.getKey()) || "convertAll".equals(event.getKey())) {
+				if (SwingUtilities.isEventDispatchThread() && config.convertAll() && config.whichPlugin() != BOTH) {
+					boolean toCore = config.whichPlugin() == CORE;
+					clientThread.invoke(() -> convertAllLayouts(toCore));
+				}
 			} else if ("useWithInventorySetups".equals(event.getKey())) {
 				clientThread.invokeLater(bankSearch::layoutBank);
 			}
 		} else if (BankTagsPlugin.CONFIG_GROUP.equals(event.getGroup()) && BankTagsPlugin.TAG_TABS_CONFIG.equals(event.getKey())) {
 			handlePotentialTagRename(event);
 		}
+	}
+
+	private void convertAllLayouts(boolean toCore) {
+		int converted = 0;
+		for (TagTab tab : tabManager.getTabs()) {
+			if (toCore && hasLayoutEnabled(LayoutableThing.bankTag(tab.getTag()))) {
+				convertTagToCore(tab.getTag());
+				converted++;
+			} else if (!toCore && hasRuneliteLayout(tab.getTag())) {
+				convertTagToHub(tab.getTag());
+				converted++;
+			}
+			if (tab.getTag().equals(tabInterface.getActiveTag())) {
+				bankTagsService.openBankTag(tabInterface.getActiveTag(), BankTagsService.OPTION_ALLOW_MODIFICATIONS);
+			}
+		}
+		chatMessage("Converted " + converted + " tag tabs from " + (toCore ? "hub to built-in." : "built-in to hub."));
 	}
 
 	@Subscribe
@@ -556,7 +585,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 
 		if (!client.isMenuOpen()) {
-			addBankTagTabMenuEntries();
+			addTabInterfaceMenuEntries();
 		}
 
 		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
@@ -1158,14 +1187,38 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		addDuplicateItemMenuEntries(menuEntryAdded);
 	}
 
-	private void addBankTagTabMenuEntries()
+	public void convertTagToHub(String tag) {
+		net.runelite.client.plugins.banktags.tabs.Layout layout = layoutManager.loadLayout(tag);
+		Layout hubLayout = new Layout();
+		int index = 0;
+		for (int i : layout.getLayout()) {
+			if (i >= 0) hubLayout.putItem(i, index);
+			index++;
+		}
+		saveLayout(LayoutableThing.bankTag(tag), hubLayout);
+		layoutManager.removeLayout(tag);
+	}
+
+	public void convertTagToCore(String tag) {
+		Layout layout = getBankOrderNonPreview(LayoutableThing.bankTag(tag));
+		net.runelite.client.plugins.banktags.tabs.Layout coreLayout = new net.runelite.client.plugins.banktags.tabs.Layout(tag);
+		for (Map.Entry<Integer, Integer> pair : layout.allPairs()) {
+			coreLayout.setItemAtPos(getNonPlaceholderId(pair.getValue()), pair.getKey());
+		}
+		layoutManager.saveLayout(coreLayout);
+	}
+
+	private void addTabInterfaceMenuEntries()
 	{
-		String bankTagName = null;
 		for (MenuEntry menuEntry : client.getMenuEntries()) {
 			if (WidgetUtil.componentToInterface(menuEntry.getParam1()) == InterfaceID.BANK) {
 				if ("View tag tab".equals(menuEntry.getOption())) {
-					bankTagName = Text.removeTags(menuEntry.getTarget()).replace("\u00a0"," ");
-				} else if ("New tag tab".equals(menuEntry.getOption())) {
+					String bankTagName = Text.removeTags(menuEntry.getTarget()).replace("\u00a0"," ");
+					if (bankTagName.length() > 0) {
+						addTagTabMenuEntries(bankTagName);
+					}
+					return;
+				} else if ("New tag tab".equals(menuEntry.getOption()) && config.whichPlugin() != CORE) {
 					if (!config.showAutoLayoutButton()) {
 						addEntry("", PREVIEW_AUTO_LAYOUT);
 					}
@@ -1174,32 +1227,78 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				}
 			}
 		}
-		if (bankTagName != null) {
-			LayoutableThing layoutable = LayoutableThing.bankTag(bankTagName);
-			if (!config.showCoreRuneliteLayoutOptions() && !isVanillaLayoutEnabled(layoutable)) {
-				// remove vanilla menu entries.
-				MenuEntry[] menuEntries = client.getMenuEntries();
-				List<MenuEntry> newEntries = new ArrayList<>();
-				for (int i = 0; i < menuEntries.length; i++) {
-					MenuEntry menuEntry = menuEntries[i];
-					if (!"Enable layout".equals(menuEntry.getOption()) && !"Disable layout".equals(menuEntry.getOption())) {
-						newEntries.add(menuEntry);
-					}
-				}
-				client.setMenuEntries(newEntries.toArray(new MenuEntry[]{}));
+	}
+
+	private void addTagTabMenuEntries(String bankTagName) {
+		WhichPlugin mode = config.whichPlugin();
+		boolean isHub = hasLayoutEnabled(LayoutableThing.bankTag(bankTagName));
+		if (!isHub && mode == CORE) return;
+
+		MenuEntry[] menuEntries = client.getMenuEntries();
+		int index = -1;
+		for (int i = 0; i < menuEntries.length; i++) {
+			String option = menuEntries[i].getOption();
+			if ("Enable layout".equals(option) || "Disable layout".equals(option)) {
+				index = i;
+				break;
+			}
+		}
+		if (index == -1) return; // shouldn't happen.
+
+		boolean isCore = hasRuneliteLayout(bankTagName);
+		boolean noLayout = !isHub && !isCore;
+
+		boolean addBoth = mode == BOTH || (mode == CORE && isHub) || (mode == HUB && isCore);
+		MenuEntry coreEnableLayoutEntry = menuEntries[index];
+		if (addBoth || mode == CORE) { // add core enable/disable option
+			if (isHub) {
+				client.getMenu().createMenuEntry(index)
+					.setOption("Convert to built-in layout")
+					.setTarget(ColorUtil.wrapWithColorTag(bankTagName, itemTooltipColor))
+					.setType(MenuAction.CC_OP)
+					.onClick(me -> {
+						convertTagToCore(bankTagName);
+						bankTagsService.openBankTag(bankTagName, BankTagsService.OPTION_ALLOW_MODIFICATIONS);
+					});
+				client.getMenu().removeMenuEntry(coreEnableLayoutEntry);
 			} else {
-				for (MenuEntry menuEntry : client.getMenuEntries()) {
-					if ("Enable layout".equals(menuEntry.getOption()) || "Disable layout".equals(menuEntry.getOption())) {
-						menuEntry.setOption("(base runelite) " + menuEntry.getOption());
-					}
-				}
+				menuEntries[index].setOption(menuEntries[index].getOption() + " (built-in)");
 			}
-
-			if (hasLayoutEnabled(layoutable)) {
-				addEntry(bankTagName, EXPORT_LAYOUT);
+		} else {
+			client.getMenu().removeMenuEntry(coreEnableLayoutEntry);
+			index--;
+		}
+		if (addBoth || mode == HUB) { // add hub enable/disable option
+			if (isCore) {
+				client.getMenu().createMenuEntry(index)
+					.setOption("Convert to hub layout")
+					.setTarget(ColorUtil.wrapWithColorTag(bankTagName, itemTooltipColor))
+					.setType(MenuAction.CC_OP)
+					.onClick(me -> {
+						convertTagToHub(bankTagName);
+						bankTagsService.openBankTag(bankTagName, BankTagsService.OPTION_ALLOW_MODIFICATIONS);
+					});
+			} else {
+				String suffix = mode != HUB ? " (hub)" : "";
+				client.getMenu().createMenuEntry(!addBoth ? 1 : index)
+					.setOption((isHub ? DISABLE_LAYOUT : ENABLE_LAYOUT) + suffix)
+					.setTarget(ColorUtil.wrapWithColorTag(bankTagName, itemTooltipColor))
+					.setType(!addBoth ? MenuAction.RUNELITE : MenuAction.CC_OP)
+					.onClick(me -> {
+						if (isHub) {
+							disableLayout(bankTagName);
+						} else {
+							enableLayout(LayoutableThing.bankTag(bankTagName));
+						}
+					});
 			}
+		}
 
-			addEntry(bankTagName, hasLayoutEnabled(layoutable) ? DISABLE_LAYOUT : ENABLE_LAYOUT);
+		if (isHub) {
+			client.createMenuEntry(!addBoth ? 2 : 1)
+				.setOption(EXPORT_LAYOUT)
+				.setTarget(ColorUtil.wrapWithColorTag(bankTagName, itemTooltipColor))
+				.setType(MenuAction.RUNELITE);
 		}
 	}
 
@@ -1411,10 +1510,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		boolean consume = true;
 		if (menuOption.startsWith(REMOVE_FROM_LAYOUT_MENU_OPTION)) {
 			removeFromLayout(event.getParam0());
-		} else if (ENABLE_LAYOUT.equals(menuOption)) {
-			enableLayout(LayoutableThing.bankTag(menuTarget));
-		} else if (DISABLE_LAYOUT.equals(menuOption)) {
-			disableLayout(menuTarget);
 		} else if (EXPORT_LAYOUT.equals(menuOption)) {
 			exportLayout(menuTarget);
 		} else if (IMPORT_LAYOUT.equals(menuOption)) {
@@ -1607,6 +1702,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return itemHasVariants(nonPlaceholderItemId);
 	}
 
+	private boolean layoutEnabledByDefault() {
+		return config.layoutEnabledByDefault() && config.whichPlugin() != CORE;
+	}
+
 	public boolean hasLayoutEnabled(LayoutableThing layoutable) {
 		if (layoutable == null) return false;
 		if (isShowingPreview()) return true;
@@ -1615,7 +1714,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
 		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
-		return configuration != null || (layoutable.isBankTab() && config.layoutEnabledByDefault()) || (layoutable.isInventorySetup() && config.useWithInventorySetups());
+		return configuration != null || (layoutable.isBankTab() && layoutEnabledByDefault()) || (layoutable.isInventorySetup() && config.useWithInventorySetups());
 	}
 
 	public boolean hasVanillaOrHubLayoutEnabled(LayoutableThing layoutable) {
@@ -1626,7 +1725,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
 		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return false;
-		return configuration != null || (layoutable.isBankTab() && config.layoutEnabledByDefault()) || (layoutable.isInventorySetup() && config.useWithInventorySetups());
+		return configuration != null || (layoutable.isBankTab() && layoutEnabledByDefault()) || (layoutable.isInventorySetup() && config.useWithInventorySetups());
 	}
 
 	public boolean isVanillaLayoutEnabled(LayoutableThing layoutable) {
@@ -1658,7 +1757,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		String configuration = configManager.getConfiguration(CONFIG_GROUP, layoutable.configKey());
 		if (LAYOUT_EXPLICITLY_DISABLED.equals(configuration)) return null;
 		if (configuration == null) {
-			if (layoutable.isBankTab() && !config.layoutEnabledByDefault() || layoutable.isInventorySetup() && !config.useWithInventorySetups()) {
+			if (layoutable.isBankTab() && !layoutEnabledByDefault() || layoutable.isInventorySetup() && !config.useWithInventorySetups()) {
 				return null;
 			} else if (layoutable.isInventorySetup()) {
 				throw new UnsupportedOperationException();
