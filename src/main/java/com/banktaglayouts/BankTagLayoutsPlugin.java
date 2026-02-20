@@ -776,7 +776,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		boolean successful = importBankTag(name, tagString);
 		if (!successful) return;
 
-		layoutManager.saveLayout(new net.runelite.client.plugins.banktags.tabs.Layout(name, new int[0])); // disable vanilla layout
+		layoutManager.removeLayout(name); // disable vanilla layout
 		saveLayout(LayoutableThing.bankTag(name), layout);
 
 		chatMessage("Imported layout-ed tag tab \"" + name + "\"");
