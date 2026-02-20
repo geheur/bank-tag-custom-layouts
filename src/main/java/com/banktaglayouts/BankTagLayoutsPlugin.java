@@ -138,6 +138,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public static final String PREVIEW_AUTO_LAYOUT = "Preview auto layout";
 	public static final String DUPLICATE_ITEM = "Duplicate-item";
 	public static final String REMOVE_DUPLICATE_ITEM = "Remove-duplicate-item";
+	private static final String ADD_EMPTY_ROW = "Add empty row";
+	private static final String REMOVE_EMPTY_ROW = "Remove empty row";
 
 	public static final int BANK_ITEM_WIDTH = 36;
 	public static final int BANK_ITEM_HEIGHT = 32;
@@ -1206,6 +1208,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		addFakeItemMenuEntries(menuEntryAdded);
 		addDuplicateItemMenuEntries(menuEntryAdded);
+		addRemoveRowMenuEntry(menuEntryAdded);
+		addNewRowMenuEntry(menuEntryAdded);
 	}
 
 	private void addTabInterfaceMenuEntries()
@@ -1421,6 +1425,52 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 	}
 
+	private void addNewRowMenuEntry(MenuEntryAdded menuEntryAdded)
+	{
+		if (!menuEntryAdded.getOption().equalsIgnoreCase("cancel")) return;
+
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		if (layoutable == null || !hasLayoutEnabled(layoutable)) return;
+
+		Layout layout = getBankOrder(layoutable);
+		if (layout == null) return;
+
+		int index = getIndexForMousePosition(true);
+		if (index == -1) return;
+
+		// Only allow on empty layout slots
+		if (layout.getItemAtIndex(index) != -1) return;
+
+		client.createMenuEntry(-1)
+				.setOption(ADD_EMPTY_ROW)
+				.setTarget("")
+				.setType(MenuAction.RUNELITE_OVERLAY)
+				.setParam0(index);
+	}
+
+	private void addRemoveRowMenuEntry(MenuEntryAdded menuEntryAdded)
+	{
+		if (!menuEntryAdded.getOption().equalsIgnoreCase("cancel")) return;
+
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		if (layoutable == null || !hasLayoutEnabled(layoutable)) return;
+
+		Layout layout = getBankOrder(layoutable);
+		if (layout == null) return;
+
+		int index = getIndexForMousePosition(true);
+		if (index == -1) return;
+
+		// Must be empty slot AND entire row must be empty
+		if (layout.getItemAtIndex(index) != -1) return;
+		if (!layout.isRowEmpty(index)) return;
+
+		client.createMenuEntry(-1)
+				.setOption(REMOVE_EMPTY_ROW)
+				.setType(MenuAction.RUNELITE_OVERLAY)
+				.setParam0(index);
+	}
+
 	/**
 	 * @return -1 if the mouse is not over a location where a bank item can be.
 	 */
@@ -1520,6 +1570,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			duplicateItem(event.getParam0());
 		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
 			removeFromLayout(event.getParam0());
+		} else if (ADD_EMPTY_ROW.equals(menuOption)) {
+			addEmptyRow(event.getParam0());
+		} else if (REMOVE_EMPTY_ROW.equals(menuOption)) {
+			removeEmptyRow(event.getParam0());
 		} else {
 			consume = false;
 		}
@@ -1543,6 +1597,35 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		Layout layout = getBankOrder(layoutable);
 
 		layout.duplicateItem(clickedItemIndex, getIdForIndexInRealBank(clickedItemIndex));
+		saveLayout(layoutable, layout);
+
+		applyCustomBankTagItemPositions();
+	}
+
+	private void addEmptyRow(int index)
+	{
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		if (layoutable == null) return;
+
+		Layout layout = getBankOrder(layoutable);
+		if (layout == null) return;
+
+		layout.insertBlankRow(index);
+		saveLayout(layoutable, layout);
+
+		applyCustomBankTagItemPositions();
+	}
+	private void removeEmptyRow(int index)
+	{
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		if (layoutable == null) return;
+
+		Layout layout = getBankOrder(layoutable);
+		if (layout == null) return;
+
+		if (!layout.isRowEmpty(index)) return;
+
+		layout.removeBlankRow(index);
 		saveLayout(layoutable, layout);
 
 		applyCustomBankTagItemPositions();
