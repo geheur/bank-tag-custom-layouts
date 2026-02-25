@@ -77,20 +77,11 @@ public interface BankTagLayoutsConfig extends Config {
     }
 
     @ConfigItem(
-            keyName = "warnForAccidentalBankReorder",
-            name = "Bank reorder warning",
-            description = "Warns you know when you reorder items in your actual bank and not in a layout.",
-            position = 3
-    )
-    default boolean warnForAccidentalBankReorder() {
-        return true;
-    }
-
-    @ConfigItem(
             keyName = "tutorialMessage",
             name = "Layout enable tutorial message",
             description = "Lets you know how to enable layouts if you drag an item in a tag tab without layout enabled, and do not currently have any layout-ed bank tag tabs.",
-            position = 4
+            position = 4,
+			hidden = true
     )
     default boolean tutorialMessage() {
         return true;
@@ -116,14 +107,6 @@ public interface BankTagLayoutsConfig extends Config {
 	default boolean shiftModifierForExtraBankItemOptions() {
 		return false;
 	}
-
-	@ConfigItem(
-		keyName = "preventVanillaPlaceholderMenuBug",
-		name = "Prevent placeholder menu bug",
-		description = "Prevents bug in the vanilla client that can prevent item withdrawal and inadvertent placeholder removal. See https://github.com/geheur/bank-tag-custom-layouts/issues/33 for more info.",
-		position = 11
-	)
-	default boolean preventVanillaPlaceholderMenuBug() { return true; }
 
 	@ConfigItem(
 		keyName = "updateMessages",

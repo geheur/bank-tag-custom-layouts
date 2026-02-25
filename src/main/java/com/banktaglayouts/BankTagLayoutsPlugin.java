@@ -614,26 +614,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return;
 		}
 
-		// This fixes a vanilla bug where it's possible open a placeholder's right-click menu while trying to withdraw an item - see https://github.com/geheur/bank-tag-custom-layouts/issues/33 for more info.
-		// I would do this in onMenuEntryAdded but client.getDraggedOnWidget() does not feel trustworthy at that point in the client tick - it is often null when it shouldn't bee - consistently and circumventable, but this makes me not trust the return value.
-		if (
-				config.preventVanillaPlaceholderMenuBug() &&
-						client.getDraggedWidget() != null &&
-						client.getDraggedOnWidget() != null
-		) {
-			MenuEntry[] menuEntries = client.getMenuEntries();
-			if (menuEntries.length >= 1)
-			{
-				MenuEntry menuEntry = menuEntries[menuEntries.length - 1];
-				if (
-						WidgetUtil.componentToInterface(menuEntry.getParam1()) == InterfaceID.BANK &&
-								menuEntry.getOption().equals("Release")
-				) {
-					menuEntry.setType(MenuAction.CC_OP);
-				}
-			}
-		}
-
 		sawMenuEntryAddedThisClientTick = false;
 	}
 
@@ -940,17 +920,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				.filter(bankItem -> !bankItem.isHidden() && bankItem.getItemId() >= 0)
 				.collect(Collectors.toList());
 
-		if (!hasVanillaOrHubLayoutEnabled(layoutable)) {
-			for (Widget bankItem : bankItems) {
-				bankItem.setOnDragCompleteListener((JavaScriptCallback) (ev) -> {
-					boolean tutorialShown = tutorialMessage();
-
-					if (!tutorialShown) bankReorderWarning(ev);
-				});
-			}
-			return;
-		}
-
 		if (!isShowingPreview()) { // I don't want to clean layout items when displaying a preview. This could result in some layout placeholders being auto-removed due to not being in the tab.
 			cleanItemsNotInBankTag(layout, layoutable);
 		}
@@ -1032,22 +1001,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 		String name = isBankTag ? activeTag : inventorySetup;
 		return new LayoutableThing(name, isBankTag);
-	}
-
-	private void bankReorderWarning(ScriptEvent ev) {
-		if (
-				config.warnForAccidentalBankReorder()
-						&& ev.getSource().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.getActiveTag() != null
-						&& client.getDraggedOnWidget() != null
-						&& client.getDraggedOnWidget().getId() == ComponentID.BANK_ITEM_CONTAINER && tabInterface.getActiveTag() != null
-						&& !hasVanillaOrHubLayoutEnabled(getCurrentLayoutableThing())
-						&& !Boolean.parseBoolean(configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, "preventTagTabDrags"))
-		) {
-			chatErrorMessage("You just reordered your actual bank!");
-			chatMessage("If you wanted to use a bank tag layout, make sure you enable it for this tab first.");
-			chatMessage("You should consider enabling \"Prevent tag tab item dragging\" in the Bank Tags plugin.");
-			chatMessage("You can disable this warning in the Bank Tag Layouts config.");
-		}
 	}
 
 	private boolean tutorialMessageShown = false;
@@ -1409,13 +1362,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		int itemIdAtIndex = layout.getItemAtIndex(index);
 
 		if (itemIdAtIndex != -1 && !indexToWidget.containsKey(index)) {
-			boolean preventPlaceholderMenuBug =
-					config.preventVanillaPlaceholderMenuBug() &&
-							client.getDraggedWidget() != null;
-
 			client.createMenuEntry(-1)
 					.setOption(REMOVE_FROM_LAYOUT_MENU_OPTION)
-					.setType(preventPlaceholderMenuBug ? MenuAction.CC_OP : MenuAction.RUNELITE_OVERLAY)
+					.setType(MenuAction.RUNELITE_OVERLAY)
 					.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
 					.setParam0(index);
 		}
@@ -1485,17 +1434,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	{
 		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
 		if (widget == null || widget.isHidden()) {
-			return;
-		}
-
-		// This fixes a vanilla bug where it's possible to release a placeholder without clicking "Release" - see https://github.com/geheur/bank-tag-custom-layouts/issues/33 for more info.
-		if (
-				config.preventVanillaPlaceholderMenuBug() &&
-						!client.isMenuOpen() &&
-						WidgetUtil.componentToInterface(event.getParam1()) == InterfaceID.BANK &&
-						event.getMenuOption().equals("Release")
-		) {
-			event.consume();
 			return;
 		}
 
