@@ -44,7 +44,7 @@ public class BankTagLayoutsToolsOverlay extends Overlay
 		tooltipManager.getTooltips().remove(tooltip);
 		tooltip = null;
 
-		int index = plugin.getIndexForMousePosition(true);
+		int index = plugin.getMouseIndex();
 		if (plugin.fakeItems.stream().noneMatch(fakeItem -> fakeItem.index == index)) return;
 
 		if (index != -1) {

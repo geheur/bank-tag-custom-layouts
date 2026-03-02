@@ -109,6 +109,16 @@ public interface BankTagLayoutsConfig extends Config {
 	}
 
 	@ConfigItem(
+		keyName = "showRowMenuEntries",
+		name = "Add/Remove row menus",
+		description = "Show add/remove empty row menus when right-clicking not on an item.",
+		position = 8
+	)
+	default boolean showRowMenuEntries() {
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "updateMessages",
 		name = "Plugin update message",
 		description = "Show a message about new features when the plugin updates.",

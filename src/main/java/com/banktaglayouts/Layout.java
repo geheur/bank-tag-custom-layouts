@@ -194,9 +194,9 @@ public class Layout {
         putItem(itemIdAtIndex, duplicatedItemIndex);
     }
 
-    public void insertBlankRow(int startIndex)
+    public void insertBlankRow(int row)
     {
-        int rowStart = ((startIndex / 8) + 1) * 8;
+        int rowStart = row * 8;
 
         layoutMap.keySet().stream()
                 .sorted(Comparator.reverseOrder())
@@ -210,9 +210,9 @@ public class Layout {
                 });
     }
 
-    public void removeBlankRow(int index)
+    public void removeBlankRow(int row)
     {
-        int rowStart = (index / 8) * 8;
+        int rowStart = row * 8;
 
         layoutMap.keySet().stream()
                 .sorted(Comparator.naturalOrder())
@@ -227,9 +227,9 @@ public class Layout {
     }
 
 
-    public boolean isRowEmpty(int index)
+    public boolean isRowEmpty(int row)
     {
-        int rowStart = (index / 8) * 8;
+        int rowStart = row * 8;
         int rowEnd = rowStart + 8;
 
         for (int i = rowStart; i < rowEnd; i++)
@@ -241,4 +241,8 @@ public class Layout {
         }
         return true;
     }
+
+	public int rowCount() {
+		return (layoutMap.keySet().stream().max(Integer::compare).orElse(-8) + 8) / 8;
+	}
 }

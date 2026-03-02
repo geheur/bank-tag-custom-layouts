@@ -12,7 +12,6 @@ import com.google.common.util.concurrent.Runnables;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.Color;
-import java.awt.Component;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
@@ -40,7 +39,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
-import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -69,6 +67,7 @@ import net.runelite.api.events.DraggingWidgetChanged;
 import net.runelite.api.events.FocusChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.MenuEntryAdded;
+import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.MenuShouldLeftClick;
 import net.runelite.api.events.ScriptPostFired;
@@ -138,11 +137,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	public static final String PREVIEW_AUTO_LAYOUT = "Preview auto layout";
 	public static final String DUPLICATE_ITEM = "Duplicate-item";
 	public static final String REMOVE_DUPLICATE_ITEM = "Remove-duplicate-item";
-	private static final String ADD_EMPTY_ROW = "Add empty row";
-	private static final String REMOVE_EMPTY_ROW = "Remove empty row";
 
 	public static final int BANK_ITEM_WIDTH = 36;
 	public static final int BANK_ITEM_HEIGHT = 32;
+	public static final int ROW_HEIGHT = 36;
+	public static final int COLUMN_WIDTH = 48;
 
 	@Inject public Client client;
 	@Inject public OverlayManager overlayManager;
@@ -702,7 +701,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 				cancelLayoutPreview();
 			}
 
-			applyCustomBankTagItemPositions(false);
+			applyCustomBankTagItemPositions(false, false);
 
 			lastLayoutable = layoutable;
 
@@ -898,10 +897,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	private void applyCustomBankTagItemPositions() {
-		applyCustomBankTagItemPositions(true);
+		applyCustomBankTagItemPositions(true, false);
 	}
 
-	private void applyCustomBankTagItemPositions(boolean setScroll) {
+	private void applyCustomBankTagItemPositions(boolean setScroll, boolean doNotScrollDown) {
 		fakeItems.clear();
 
 		LayoutableThing layoutable = getCurrentLayoutableThing();
@@ -941,7 +940,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		int height = getYForIndex(maxIndex) + BANK_ITEM_HEIGHT + 8;
 		if (setScroll && layoutable.equals(lastLayoutable) && height != lastHeight)
 		{
-			resizeBankContainerScrollbar(height, lastHeight);
+			resizeBankContainerScrollbar(height, lastHeight, doNotScrollDown);
 		}
 		lastHeight = height;
 
@@ -1069,7 +1068,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (isShowingPreview() && applyLayoutPreviewButton != null && applyLayoutPreviewButton.contains(client.getMouseCanvasPosition())) {
 			return mouseEvent;
 		}
-		int index = getIndexForMousePosition(true);
+		int index = getMouseIndex();
 		FakeItem fakeItem = fakeItems.stream().filter(fake -> fake.index == index).findAny().orElse(null);
 		if (fakeItem != null) {
 			draggedItemIndex = fakeItem.index;
@@ -1089,7 +1088,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		if (draggedItemIndex == -1) return mouseEvent;
 
 		if (config.showLayoutPlaceholders()) {
-			int draggedOnIndex = getIndexForMousePositionNoLowerLimit();
+			int draggedOnIndex = getMouseIndexNoLowerLimit();
 			clientThread.invokeLater(() -> {
 				if (draggedOnIndex != -1 && antiDrag.mayDrag()) {
 					customBankTagOrderInsert(getCurrentLayoutableThing(), draggedItemIndex, draggedOnIndex);
@@ -1161,8 +1160,48 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 		addFakeItemMenuEntries(menuEntryAdded);
 		addDuplicateItemMenuEntries(menuEntryAdded);
-		addRemoveRowMenuEntry(menuEntryAdded);
-		addNewRowMenuEntry(menuEntryAdded);
+	}
+
+	@Subscribe
+	public void onMenuOpened(MenuOpened e) {
+		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
+		if (widget == null || widget.isHidden()) return;
+		if (!config.showRowMenuEntries()) return;
+		Layout layout = getCurrentBankOrder();
+		if (layout == null) return;
+
+		int index = getMouseIndex();
+		int row = getMouseRow();
+		if (
+			row != -1 && (index == -1 || layout.getItemAtIndex(index) == -1) &&
+				(!config.shiftModifierForExtraBankItemOptions() || client.isKeyPressed(KeyCode.KC_SHIFT))
+		) {
+			addNewRowMenuEntry(layout, row);
+		}
+	}
+
+	private void addNewRowMenuEntry(Layout layout, int row) {
+		if (layout.isEmpty()) return;
+
+		int rowCount = layout.rowCount();
+		if (row == 0) {
+			client.getMenu().createMenuEntry(0)
+				.setOption("Add row above")
+				.setType(MenuAction.RUNELITE_OVERLAY)
+				.onClick(me -> addEmptyRow(-1));
+		}
+		if (row < rowCount - 1) {
+			client.getMenu().createMenuEntry(0)
+				.setOption("Add row below")
+				.setType(MenuAction.RUNELITE_OVERLAY)
+				.onClick(me -> addEmptyRow(row + 1));
+			if (layout.isRowEmpty(row)) {
+				client.getMenu().createMenuEntry(0)
+					.setOption("Remove row")
+					.setType(MenuAction.RUNELITE_OVERLAY)
+					.onClick(me -> removeEmptyRow(row));
+			}
+		}
 	}
 
 	private void addTabInterfaceMenuEntries()
@@ -1280,7 +1319,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			return false;
 		}
 
-		int mousePositionIndex = getIndexForMousePosition();
+		int mousePositionIndex = getMouseIndexPadded();
 		Layout layout = getBankOrder(getCurrentLayoutableThing());
 		if (layout == null) return false;
 		int itemId = layout.getItemAtIndex(mousePositionIndex);
@@ -1317,12 +1356,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	{
 		if (config.shiftModifierForExtraBankItemOptions() && !client.isKeyPressed(KeyCode.KC_SHIFT)) return;
 
-		LayoutableThing layoutable = getCurrentLayoutableThing();
-		if (layoutable == null) return;
-		Layout layout = getBankOrder(layoutable);
+		Layout layout = getCurrentBankOrder();
 		if (layout == null) return;
-
-		int index = getIndexForMousePosition(true);
+		int index = getMouseIndex();
 		if (index == -1) return;
 		int itemIdAtIndex = layout.getItemAtIndex(index);
 
@@ -1361,7 +1397,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 		Layout layout = getBankOrder(currentLayoutableThing);
 
-		int index = getIndexForMousePosition(true);
+		int index = getMouseIndex();
 		if (index == -1) return;
 		int itemIdAtIndex = layout.getItemAtIndex(index);
 
@@ -1374,80 +1410,23 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 	}
 
-	private void addNewRowMenuEntry(MenuEntryAdded menuEntryAdded)
-	{
-		if (!menuEntryAdded.getOption().equalsIgnoreCase("cancel")) return;
-
-		LayoutableThing layoutable = getCurrentLayoutableThing();
-		if (layoutable == null || !hasLayoutEnabled(layoutable)) return;
-
-		Layout layout = getBankOrder(layoutable);
-		if (layout == null) return;
-
-		int index = getIndexForMousePosition(true);
-		if (index == -1) return;
-
-		// Only allow on empty layout slots
-		if (layout.getItemAtIndex(index) != -1) return;
-
-		client.createMenuEntry(-1)
-				.setOption(ADD_EMPTY_ROW)
-				.setTarget("")
-				.setType(MenuAction.RUNELITE_OVERLAY)
-				.setParam0(index);
+	int getMouseIndex() {
+		return getIndexForMousePosition(false, false, false);
 	}
 
-	private void addRemoveRowMenuEntry(MenuEntryAdded menuEntryAdded)
-	{
-		if (!menuEntryAdded.getOption().equalsIgnoreCase("cancel")) return;
-
-		LayoutableThing layoutable = getCurrentLayoutableThing();
-		if (layoutable == null || !hasLayoutEnabled(layoutable)) return;
-
-		Layout layout = getBankOrder(layoutable);
-		if (layout == null) return;
-
-		int index = getIndexForMousePosition(true);
-		if (index == -1) return;
-
-		// Must be empty slot AND entire row must be empty
-		if (layout.getItemAtIndex(index) != -1) return;
-		if (!layout.isRowEmpty(index)) return;
-
-		client.createMenuEntry(-1)
-				.setOption(REMOVE_EMPTY_ROW)
-				.setType(MenuAction.RUNELITE_OVERLAY)
-				.setParam0(index);
+	int getMouseIndexNoLowerLimit() {
+		return getIndexForMousePosition(true, true, false);
 	}
 
-	/**
-	 * @return -1 if the mouse is not over a location where a bank item can be.
-	 */
-	int getIndexForMousePositionNoLowerLimit() {
-		return getIndexForMousePosition(false, true);
+	int getMouseIndexPadded() {
+		return getIndexForMousePosition(true, false, false);
 	}
 
-	/**
-	 * @return -1 if the mouse is not over a location where a bank item can be.
-	 */
-	int getIndexForMousePosition() {
-		return getIndexForMousePosition(false);
+	int getMouseRow() {
+		return getIndexForMousePosition(false, false, true);
 	}
 
-	/**
-	 * @param dontEnlargeClickbox If this is false, the clickbox used to calculate the clickbox will be larger (2 larger up and down, 6 larger left to right), so that there are no gaps between clickboxes in the bank interface.
-	 * @return -1 if the mouse is not over a location where a bank item can be.
-	 */
-	int getIndexForMousePosition(boolean dontEnlargeClickbox) {
-		return getIndexForMousePosition(dontEnlargeClickbox, false);
-	}
-
-	/**
-	 * @param dontEnlargeClickbox If this is false, the clickbox used to calculate the clickbox will be larger (2 larger up and down, 6 larger left to right), so that there are no gaps between clickboxes in the bank interface.
-	 * @param noLowerLimit Still return indexes when the mouse is below the bank container.
-	 * @return -1 if the mouse is not over a location where a bank item can be.
-	 */
-	int getIndexForMousePosition(boolean dontEnlargeClickbox, boolean noLowerLimit) {
+	int getIndexForMousePosition(boolean padClickboxes, boolean expandBelowWindow, boolean getRow) {
 		Widget bankItemContainer = client.getWidget(ComponentID.BANK_ITEM_CONTAINER);
 		if (bankItemContainer == null) return -1;
 		Point mouseCanvasPosition = client.getMouseCanvasPosition();
@@ -1457,20 +1436,22 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		Rectangle bankBounds = bankItemContainer.getBounds();
 
 		if (
-				noLowerLimit && (mouseX < bankBounds.getMinX() || mouseX > bankBounds.getMaxX() || mouseY < bankBounds.getMinY())
-						|| !noLowerLimit && !bankBounds.contains(new java.awt.Point(mouseX, mouseY))) {
+				expandBelowWindow && (mouseX < bankBounds.getMinX() || mouseX > bankBounds.getMaxX() || mouseY < bankBounds.getMinY())
+						|| !expandBelowWindow && !bankBounds.contains(new java.awt.Point(mouseX, mouseY))) {
 			return -1;
 		}
 
 		Point canvasLocation = bankItemContainer.getCanvasLocation();
-		int scrollY = bankItemContainer.getScrollY();
-		int row = (mouseY - canvasLocation.getY() + scrollY + 2) / BANK_ITEM_WIDTH;
-		int col = (int) Math.floor((mouseX - canvasLocation.getX() - 51 + 6) / 48f);
+		int relativeY = mouseY - canvasLocation.getY() + bankItemContainer.getScrollY() + 2;
+		int row = relativeY / ROW_HEIGHT;
+		if (getRow) return row;
+		int relativeX = mouseX - canvasLocation.getX() - 51 + 6;
+		int col = relativeX / COLUMN_WIDTH;
 		int index = row * 8 + col;
 		if (row < 0 || col < 0 || col > 7 || index < 0) return -1;
-		if (dontEnlargeClickbox) {
-			int xDistanceIntoItem = (mouseX - canvasLocation.getX() - 51 + 6) % 48;
-			int yDistanceIntoItem = (mouseY - canvasLocation.getY() + scrollY + 2) % BANK_ITEM_WIDTH;
+		if (!padClickboxes) {
+			int xDistanceIntoItem = relativeX % COLUMN_WIDTH;
+			int yDistanceIntoItem = relativeY % ROW_HEIGHT;
 			if (xDistanceIntoItem < 6 || xDistanceIntoItem >= 42 || yDistanceIntoItem < 2 || yDistanceIntoItem >= 34) {
 				return -1;
 			}
@@ -1508,10 +1489,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 			duplicateItem(event.getParam0());
 		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
 			removeFromLayout(event.getParam0());
-		} else if (ADD_EMPTY_ROW.equals(menuOption)) {
-			addEmptyRow(event.getParam0());
-		} else if (REMOVE_EMPTY_ROW.equals(menuOption)) {
-			removeEmptyRow(event.getParam0());
 		} else {
 			consume = false;
 		}
@@ -1540,7 +1517,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		applyCustomBankTagItemPositions();
 	}
 
-	private void addEmptyRow(int index)
+	private void addEmptyRow(int row)
 	{
 		LayoutableThing layoutable = getCurrentLayoutableThing();
 		if (layoutable == null) return;
@@ -1548,12 +1525,13 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		Layout layout = getBankOrder(layoutable);
 		if (layout == null) return;
 
-		layout.insertBlankRow(index);
+		layout.insertBlankRow(row);
 		saveLayout(layoutable, layout);
 
-		applyCustomBankTagItemPositions();
+		applyCustomBankTagItemPositions(true, true);
 	}
-	private void removeEmptyRow(int index)
+
+	private void removeEmptyRow(int row)
 	{
 		LayoutableThing layoutable = getCurrentLayoutableThing();
 		if (layoutable == null) return;
@@ -1561,9 +1539,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		Layout layout = getBankOrder(layoutable);
 		if (layout == null) return;
 
-		if (!layout.isRowEmpty(index)) return;
+		if (!layout.isRowEmpty(row)) return;
 
-		layout.removeBlankRow(index);
+		layout.removeBlankRow(row);
 		saveLayout(layoutable, layout);
 
 		applyCustomBankTagItemPositions();
@@ -1771,6 +1749,17 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		return getBankOrderNonPreview(layoutable);
 	}
 
+	Layout getCurrentBankOrder() {
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		if (!hasLayoutEnabled(layoutable)) return null;
+		if (isShowingPreview()) {
+			return previewLayout;
+		}
+
+		if (isVanillaLayoutEnabled(layoutable)) return null;
+		return getBankOrderNonPreview(layoutable);
+	}
+
 	/**
 	 * unlike getBankOrder, this will not return a preview layout when one is currently being show.
 	 */
@@ -1837,7 +1826,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	static int getXForIndex(int index) {
-		return (index % 8) * 48 + 51;
+		return (index % 8) * COLUMN_WIDTH + 51;
 	}
 
 	static int getYForIndex(int index) {
@@ -1912,12 +1901,12 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 		}
 	}
 
-	private void resizeBankContainerScrollbar(int height, int lastHeight) {
+	private void resizeBankContainerScrollbar(int height, int lastHeight, boolean doNotScrollDown) {
 		Widget container = client.getWidget(ComponentID.BANK_ITEM_CONTAINER);
 
 		container.setScrollHeight(height); // This change requires the script below to run to take effect.
 
-		int itemContainerScroll = (height > lastHeight) ? height : container.getScrollY();
+		int itemContainerScroll = (!doNotScrollDown && height > lastHeight) ? height : container.getScrollY();
 
 		clientThread.invokeLater(() ->
 				client.runScript(ScriptID.UPDATE_SCROLLBAR,
@@ -1956,7 +1945,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	}
 
 	private void customBankTagOrderInsert(LayoutableThing layoutable, Widget draggedItem) {
-		int draggedOnItemIndex = getIndexForMousePositionNoLowerLimit();
+		int draggedOnItemIndex = getMouseIndexNoLowerLimit();
 		if (draggedOnItemIndex == -1) return;
 
 		int draggedItemIndex = -1;
