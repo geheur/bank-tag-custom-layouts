@@ -85,6 +85,7 @@ import net.runelite.api.widgets.WidgetUtil;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.ConfigProfile;
+import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.events.ProfileChanged;
@@ -160,6 +161,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Inject public Gson gson;
 	@Inject public UsedToBeReflection copyPaste;
 	@Inject public LayoutManager layoutManager;
+	@Inject public EventBus eventBus;
 
 	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
 	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
@@ -248,6 +250,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Override
 	protected void startUp()
 	{
+		eventBus.register(copyPaste);
 		layoutManager.unregisterAutoLayout("Zigzag");
 		layoutManager.registerAutoLayout(this, "Zigzag", new AutoLayout()
 		{
@@ -313,6 +316,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 	@Override
 	protected void shutDown()
 	{
+		eventBus.unregister(copyPaste);
 		overlayManager.remove(fakeItemOverlay);
 		spriteManager.removeSpriteOverrides(Sprites.values());
 		mouseManager.unregisterMouseListener(this);

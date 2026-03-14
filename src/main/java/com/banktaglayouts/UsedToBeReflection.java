@@ -3,9 +3,12 @@ package com.banktaglayouts;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.ScriptEvent;
+import net.runelite.api.ScriptID;
+import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemVariationMapping;
 import net.runelite.client.plugins.banktags.BankTagsPlugin;
@@ -85,16 +88,19 @@ public class UsedToBeReflection {
         configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, TAG_TABS_CONFIG, tags);
     }
 
-    public void loadTab(String name) {
-		Widget w = client.getWidget(ComponentID.BANK_CONTAINER);
-		if (w == null) return;
-
-		ScriptEvent scriptEvent = client.createScriptEvent(w.getOnLoadListener()).setSource(w);
+    private boolean reEnableTabs = false;
+	public void loadTab(String name) {
 		configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, "useTabs", false);
-		scriptEvent.run();
-		configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, "useTabs", true);
-		scriptEvent.run();
-    }
+		reEnableTabs = true;
+	}
+
+	@Subscribe(priority = -1f) // run after TabInterface.
+	public void onScriptPreFired(ScriptPreFired event) {
+		if (event.getScriptId() == ScriptID.BANKMAIN_INIT && reEnableTabs) {
+			configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, "useTabs", true);
+			reEnableTabs = false;
+		}
+	}
 
     public void openTag(String tag) {
     }
