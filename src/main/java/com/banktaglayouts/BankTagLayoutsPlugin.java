@@ -65,7 +65,6 @@ import net.runelite.api.ScriptEvent;
 import net.runelite.api.ScriptID;
 import net.runelite.api.Varbits;
 import net.runelite.api.events.ClientTick;
-import net.runelite.api.events.DraggingWidgetChanged;
 import net.runelite.api.events.FocusChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.MenuEntryAdded;
@@ -74,6 +73,7 @@ import net.runelite.api.events.MenuShouldLeftClick;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.WidgetClosed;
+import net.runelite.api.events.WidgetDrag;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.InterfaceID;
@@ -1914,7 +1914,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener
 
 	// Disable reordering your real bank while any tag tab is active, as if the Bank Tags Plugin's "Prevent tag tab item dragging" was enabled.
 	@Subscribe(priority = -1f) // run after bank tags, otherwise you can't drag items into other tabs while a tab is open.
-	public void onDraggingWidgetChanged(DraggingWidgetChanged event) {
+	public void onWidgetDrag(WidgetDrag event) {
 		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
 		if (widget == null || widget.isHidden()) {
 			return;
