@@ -283,7 +283,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		keyManager.unregisterKeyListener(antiDrag);
 		keyManager.unregisterKeyListener(this);
 		addItemKeybind = addRowKeybind = removeRowKeybind = false;
-		mouseIsPressed = false;
 		draggedItemIndex = -1;
 		antiDrag.reset();
 		registered = false;
@@ -1103,66 +1102,25 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	public int dragStartY = 0;
 	public int dragStartScroll = 0;
 
-	@Override
-	public MouseEvent mousePressed(MouseEvent mouseEvent) {
-		mouseIsPressed = true;
-		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(getCurrentLayoutableThing()) || !config.showLayoutPlaceholders() || client.isMenuOpen()) return mouseEvent;
-		if (isShowingPreview() && applyLayoutPreviewButton != null && applyLayoutPreviewButton.contains(client.getMouseCanvasPosition())) {
-			return mouseEvent;
-		}
-		int index = getMouseIndex();
-		FakeItem fakeItem = fakeItems.stream().filter(fake -> fake.index == index).findAny().orElse(null);
-		if (fakeItem != null) {
-			draggedItemIndex = fakeItem.index;
-			dragStartX = mouseEvent.getX();
-			dragStartY = mouseEvent.getY();
-			dragStartScroll = client.getWidget(ComponentID.BANK_ITEM_CONTAINER).getScrollY();
-			antiDrag.startDrag();
-			mouseEvent.consume();
-		}
-		return mouseEvent;
-	}
+	@Override public MouseEvent mousePressed(MouseEvent mouseEvent) { return mouseEvent; }
+	@Override public MouseEvent mouseReleased(MouseEvent mouseEvent) {
+		if (mouseEvent.getButton() != MouseEvent.BUTTON1) return mouseEvent;
+		clientThread.invokeLater(() -> {
+			if (draggedItemIndex == -1) return;
 
-	@Override
-	public MouseEvent mouseReleased(MouseEvent mouseEvent) {
-		mouseIsPressed = false;
-		if (mouseEvent.getButton() != MouseEvent.BUTTON1 || !hasLayoutEnabled(getCurrentLayoutableThing())) return mouseEvent;
-		if (draggedItemIndex == -1) return mouseEvent;
-
-		if (config.showLayoutPlaceholders()) {
 			int draggedOnIndex = getMouseIndexNoLowerLimit();
-			clientThread.invokeLater(() -> {
-				if (draggedOnIndex != -1 && antiDrag.mayDrag()) {
-					customBankTagOrderInsert(getCurrentLayoutableThing(), draggedItemIndex, draggedOnIndex);
-				}
-				antiDrag.endDrag();
-				draggedItemIndex = -1;
-			});
-		}
-
-		mouseEvent.consume();
+			if (draggedOnIndex != -1 && antiDrag.mayDrag()) {
+				customBankTagOrderInsert(getCurrentLayoutableThing(), draggedItemIndex, draggedOnIndex);
+			}
+			antiDrag.endDrag();
+			draggedItemIndex = -1;
+		});
 		return mouseEvent;
 	}
-
-	@Override
-	public MouseEvent mouseEntered(MouseEvent mouseEvent) {
-		return mouseEvent;
-	}
-
-	@Override
-	public MouseEvent mouseExited(MouseEvent mouseEvent) {
-		return mouseEvent;
-	}
-
-	@Override
-	public MouseEvent mouseDragged(MouseEvent mouseEvent) {
-		return mouseEvent;
-	}
-
-	@Override
-	public MouseEvent mouseMoved(MouseEvent mouseEvent) {
-		return mouseEvent;
-	}
+	@Override public MouseEvent mouseEntered(MouseEvent mouseEvent) { return mouseEvent; }
+	@Override public MouseEvent mouseExited(MouseEvent mouseEvent) { return mouseEvent; }
+	@Override public MouseEvent mouseDragged(MouseEvent mouseEvent) { return mouseEvent; }
+	@Override public MouseEvent mouseMoved(MouseEvent mouseEvent) { return mouseEvent; }
 
 	boolean addItemKeybind = false;
 	boolean addRowKeybind = false;
@@ -1198,16 +1156,13 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	@Subscribe
 	public void onMenuEntryAdded(MenuEntryAdded menuEntryAdded)
 	{
-		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
-		if (widget == null || widget.isHidden()) {
-			return;
-		}
+		if (!bankOpenButNotOnOptionsMenu()) return;
 
 		if (!sawMenuEntryAddedThisClientTick) {
 			sawMenuEntryAddedThisClientTick = true;
 
 			// If you move the items when you're dragging an item over its duplicates, undesirable behavior occurs.
-			if (!mouseIsPressed)
+			if (client.getDraggedWidget() == null)
 			{
 				boolean movedItemWidget = moveDuplicateItem();
 				if (movedItemWidget)
@@ -1222,10 +1177,22 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		addDuplicateItemMenuEntries(menuEntryAdded);
 	}
 
+	private boolean bankOpenButNotOnOptionsMenu() {
+		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
+		if (widget == null || widget.isHidden()) return false;
+		widget = client.getWidget(net.runelite.api.gameval.InterfaceID.Bankmain.MENU_CONTAINER);
+		return (widget == null || widget.isHidden());
+	}
+
 	@Subscribe
 	public void onMenuOpened(MenuOpened e) {
-		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
-		if (widget == null || widget.isHidden()) return;
+		if (removeThisMenuEntry != null) {
+			try {
+				client.getMenu().removeMenuEntry(removeThisMenuEntry);
+			} catch (IllegalArgumentException ex) { /* do nothing lol */ }
+			removeThisMenuEntry = null;
+		}
+		if (!bankOpenButNotOnOptionsMenu()) return;
 		Layout layout = getCurrentBankOrder();
 		if (layout == null) return;
 		if (config.shiftModifierForExtraBankItemOptions() && !client.isKeyPressed(KeyCode.KC_SHIFT)) return;
@@ -1247,8 +1214,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 
 	@Subscribe
 	public void onPostMenuSort(PostMenuSort e) {
-		Widget widget = client.getWidget(ComponentID.BANK_CONTAINER);
-		if (widget == null || widget.isHidden()) return;
+		if (!bankOpenButNotOnOptionsMenu()) return;
 		Layout layout = getCurrentBankOrder();
 		if (layout == null) return;
 
@@ -1450,8 +1416,6 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 			.setType(MenuAction.RUNELITE);
 	}
 
-	private volatile boolean mouseIsPressed = false;
-
 	/**
 	 * Makes sure there is a real item under the mouse cursor if the mouse is over or near a duplicated item.
 	 * @return true if an item widget was moved, false otherwise. If true, fake items should be updated and
@@ -1514,9 +1478,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 
 		boolean isLayoutPlaceholder = fakeItems.stream()
 				.filter(fakeItem -> fakeItem.getIndex() == index && fakeItem.isLayoutPlaceholder()).findAny().isPresent();
+		if (isLayoutPlaceholder) return;
 
 		int itemCount = layout.countItemsWithId(itemIdAtIndex);
-		if (itemCount > 1 && !isLayoutPlaceholder) {
+		if (itemCount > 1) {
 			client.createMenuEntry(-1)
 					.setOption(REMOVE_DUPLICATE_ITEM)
 					.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
@@ -1533,6 +1498,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		if (!isRealItem) return; // layout placeholders already have "remove-layout" menu option which does the same thing as remove-duplicate-item.
 	}
 
+	private MenuEntry removeThisMenuEntry = null;
+
 	private void addFakeItemMenuEntries(MenuEntryAdded menuEntryAdded) {
 		if (!menuEntryAdded.getOption().equalsIgnoreCase("cancel")) return;
 
@@ -1547,11 +1514,32 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		int itemIdAtIndex = layout.getItemAtIndex(index);
 
 		if (itemIdAtIndex != -1 && !indexToWidget.containsKey(index)) {
-			client.createMenuEntry(-1)
+			client.getMenu().createMenuEntry(-1)
 					.setOption(REMOVE_FROM_LAYOUT_MENU_OPTION)
-					.setType(MenuAction.RUNELITE_OVERLAY)
+					.setType(MenuAction.RUNELITE)
 					.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
 					.setParam0(index);
+			client.createMenuEntry(-1)
+				.setOption(DUPLICATE_ITEM)
+				.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
+				.setType(MenuAction.RUNELITE)
+				.setParam0(index);
+			// This is a dummy option to start off the drag. It should be removed in onMenuOpened.
+			removeThisMenuEntry = client.getMenu().createMenuEntry(-1)
+				.setType(MenuAction.RUNELITE)
+				.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
+				.onClick(me -> {
+					if (client.isMenuOpen()) return;
+					FakeItem fakeItem = fakeItems.stream().filter(fake -> fake.index == index).findAny().orElse(null);
+					if (fakeItem != null) {
+						Point mcp = client.getMouseCanvasPosition();
+						draggedItemIndex = fakeItem.index;
+						dragStartX = mcp.getX();
+						dragStartY = mcp.getY();
+						dragStartScroll = client.getWidget(ComponentID.BANK_ITEM_CONTAINER).getScrollY();
+						antiDrag.startDrag();
+					}
+				});
 		}
 	}
 
