@@ -1186,7 +1186,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 
 	@Subscribe
 	public void onMenuOpened(MenuOpened e) {
-		if (removeThisMenuEntry != null) {
+		if (removeThisMenuEntry != null && removeThisMenuEntryStale == client.getGameCycle()) {
 			try {
 				client.getMenu().removeMenuEntry(removeThisMenuEntry);
 			} catch (IllegalArgumentException ex) { /* do nothing lol */ }
@@ -1498,6 +1498,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		if (!isRealItem) return; // layout placeholders already have "remove-layout" menu option which does the same thing as remove-duplicate-item.
 	}
 
+	private int removeThisMenuEntryStale = -1;
 	private MenuEntry removeThisMenuEntry = null;
 
 	private void addFakeItemMenuEntries(MenuEntryAdded menuEntryAdded) {
@@ -1540,6 +1541,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 						antiDrag.startDrag();
 					}
 				});
+			removeThisMenuEntryStale = client.getGameCycle();
 		}
 	}
 
