@@ -342,9 +342,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 
 		overlayManager.add(fakeItemOverlay);
 		spriteManager.addSpriteOverrides(Sprites.values());
-		registerListeners();
 
 		clientThread.invokeLater(() -> {
+			registerListeners();
 			if (client.getGameState() == GameState.LOGGED_IN) {
 				showLayoutPreviewButton = null;
 				updateButton();
