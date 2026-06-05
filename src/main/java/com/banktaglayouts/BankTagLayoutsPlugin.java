@@ -242,7 +242,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		}
 
 		hideLayoutPreviewButtons(!isShowingPreview());
-		boolean show = config.whichPlugin() != CORE && config.showAutoLayoutButton() && !isVanillaLayoutEnabled(getCurrentLayoutableThing()) && !isShowingPreview();
+		boolean show =
+			getCurrentLayoutableThing() != null &&
+			config.showAutoLayoutButton() &&
+			(config.whichPlugin() != CORE && !isVanillaLayoutEnabled(getCurrentLayoutableThing()) || hasLayoutEnabled(getCurrentLayoutableThing())) &&
+			!isShowingPreview();
 		showLayoutPreviewButton.setHidden(!show);
 	}
 
