@@ -108,6 +108,60 @@ public interface BankTagLayoutsConfig extends Config {
 	default boolean updateMessages() { return true; }
 
 	@ConfigSection(
+		name = "Combo Tags",
+		description = "Options for combo \"smart cells\" embedded in bank tabs. Per-combo colors are set in the Combo Tags side panel.",
+		position = 50
+	)
+	String comboTags = "comboTags";
+
+	@RequiredArgsConstructor
+	enum ComboHighlight {
+		NONE("None"),
+		OUTLINE("Box outline"),
+		DOT("Dot"),
+		UNDERLINE("Underline"),
+		BACKGROUND("Highlight");
+		final String name;
+		@Override
+		public String toString() {
+			return name;
+		}
+	}
+
+	@ConfigItem(
+		keyName = "comboHighlightStyle",
+		name = "Bank Overlay",
+		description = "How combo smart cells are highlighted in bank tabs. The color is set per combo group in the side panel.",
+		position = 1,
+		section = comboTags
+	)
+	default ComboHighlight comboHighlightStyle() {
+		return ComboHighlight.OUTLINE;
+	}
+
+	@ConfigItem(
+		keyName = "comboColorName",
+		name = "Color combo item name",
+		description = "Recolor the hovered item name for combo smart cells. The name color is set per combo group in the side panel.",
+		position = 2,
+		section = comboTags
+	)
+	default boolean comboColorName() {
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "comboReplaceOnList",
+		name = "Replace button on group list",
+		description = "Show the 'Replace in current bank tab' action as a button on each group in the Combo Tags list instead of inside the group editor.",
+		position = 3,
+		section = comboTags
+	)
+	default boolean comboReplaceOnList() {
+		return false;
+	}
+
+	@ConfigSection(
 		name = "Auto-layout",
 		description = "Auto-layout lays out your tab automatically using items from your equipment and inventory.",
 		position = 100

@@ -48,6 +48,45 @@ public class UsedToBeReflection {
         return tags.stream().anyMatch(tag -> tag.startsWith(Text.standardize(bankTagName)));
     }
 
+    /**
+     * Like {@link #findTag} but EXACT — avoids the {@code startsWith} false positive where e.g. an item
+     * tagged "newtoa2" is wrongly considered part of tab "newtoa".
+     */
+    boolean findTagExact(int itemId, String bankTagName) {
+        String target = Text.standardize(bankTagName);
+        Collection<String> tags = getTags(itemId, false);
+        tags.addAll(getTags(itemId, true));
+        return tags.stream().anyMatch(tag -> Text.standardize(tag).equals(target));
+    }
+
+    /**
+     * Removes a tag from an item in BOTH the non-variation and variation (negative-base) forms.
+     * {@code TagManager.removeTag} only clears the non-variation key, so variation-tagged items
+     * (the default when tagging) otherwise survive.
+     */
+    void removeTag(int itemId, String bankTagName) {
+        removeTag(itemId, bankTagName, false);
+        removeTag(itemId, bankTagName, true);
+    }
+
+    private void removeTag(int itemId, String bankTagName, boolean variation) {
+        String key = ITEM_KEY_PREFIX + getItemId(itemId, variation);
+        String config = configManager.getConfiguration(CONFIG_GROUP, key);
+        if (config == null || config.isEmpty()) {
+            return;
+        }
+        String target = Text.standardize(bankTagName);
+        List<String> tags = new ArrayList<>(Text.fromCSV(config));
+        if (!tags.removeIf(t -> Text.standardize(t).equals(target))) {
+            return;
+        }
+        if (tags.isEmpty()) {
+            configManager.unsetConfiguration(CONFIG_GROUP, key);
+        } else {
+            configManager.setConfiguration(CONFIG_GROUP, key, Text.toCSV(tags));
+        }
+    }
+
     Collection<String> getTags(int itemId, boolean variation)
     {
         return new LinkedHashSet<>(Text.fromCSV(getTagString(itemId, variation).toLowerCase()));

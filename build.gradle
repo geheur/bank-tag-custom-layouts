@@ -10,7 +10,7 @@ repositories {
 	mavenCentral()
 }
 
-def runeLiteVersion = 'latest.release'
+def runeLiteVersion = '1.12.28'
 
 dependencies {
 	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
@@ -43,4 +43,14 @@ task createProperties(dependsOn: processResources) {
 
 classes {
 	dependsOn createProperties
+}
+
+// Launch RuneLite locally with this plugin sideloaded (com.banktaglayouts.ExamplePluginTest#main).
+// Uses the test runtime classpath (where runelite client is available) but does NOT run the test task.
+task runClient(type: JavaExec) {
+	group = 'application'
+	description = 'Launch RuneLite with this plugin sideloaded.'
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'com.banktaglayouts.ExamplePluginTest'
+	enableAssertions = true // RuneLite.main() refuses to start without assertions (-ea) enabled.
 }

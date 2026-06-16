@@ -7,3 +7,17 @@ build
 nbactions.xml
 nb-configuration.xml
 nbproject/
+# local JDK pin (machine-specific path)
+gradle.properties
+
+# VS Code Java extension output
+bin/
+
+# Never commit Jagex/RuneLite session credentials (they log in bypassing your password)
+credentials.properties
+*.token
+*.jagex
+jagex-credentials*
+
+# local agent/dev notes
+CLAUDE.md

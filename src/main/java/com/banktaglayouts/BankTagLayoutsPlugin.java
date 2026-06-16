@@ -66,11 +66,12 @@ import net.runelite.api.Varbits;
 import net.runelite.api.events.ClientTick;
 import net.runelite.api.events.FocusChanged;
 import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuEntryAdded;
 import net.runelite.api.events.MenuOpened;
 import net.runelite.api.events.MenuOptionClicked;
-import net.runelite.api.events.MenuShouldLeftClick;
 import net.runelite.api.events.PostMenuSort;
+import net.runelite.api.events.MenuShouldLeftClick;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.WidgetClosed;
@@ -142,6 +143,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	public static final String PREVIEW_AUTO_LAYOUT = "Preview auto layout";
 	public static final String DUPLICATE_ITEM = "Duplicate-item";
 	public static final String REMOVE_DUPLICATE_ITEM = "Remove-duplicate-item";
+	public static final String REPLACE_WITH_COMBO = "Replace with combo";
+	public static final String REMOVE_COMBO = "Remove Layout";
+	public static final String REPLACE_COMBO_WITH_ITEM = "Set Placeholder";
+	public static final String OPEN_COMBO = "Edit";
 
 	public static final int BANK_ITEM_WIDTH = 36;
 	public static final int BANK_ITEM_HEIGHT = 32;
@@ -167,6 +172,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	@Inject public UsedToBeReflection copyPaste;
 	@Inject public LayoutManager layoutManager;
 	@Inject public EventBus eventBus;
+	@Inject public net.runelite.client.ui.ClientToolbar clientToolbar;
+	@Inject public net.runelite.client.ui.components.colorpicker.ColorPickerManager colorPickerManager;
 
 	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
 	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
@@ -180,6 +187,41 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 
 	final AntiDragPluginUtil antiDrag = new AntiDragPluginUtil(this);
 	private final LayoutGenerator layoutGenerator = new LayoutGenerator(this);
+	private final com.banktaglayouts.combo.ComboResolver comboResolver = new com.banktaglayouts.combo.ComboResolver(this);
+
+	// CORE-layout combo tabs: one registered BankTag per host tag, supplying live owned-winner membership so
+	// RuneLite renders the cells from our resolution (no per-winner tagging, no auto-float). See maintainComboCoreTab.
+	// Concurrent: put/get/remove on the client thread (onItemContainerChanged) vs iterate+clear on the EDT
+	// (shutDown -> unregisterComboBankTags). A plain HashMap here can CME or corrupt under that interleaving.
+	private final Map<String, com.banktaglayouts.combo.ComboBankTag> comboBankTags = new ConcurrentHashMap<>();
+
+	// Cached combo group name -> ARGB color, so the overlay (per box, per frame) and the right-click menu don't
+	// re-parse the whole combos JSON every call. Rebuilt lazily; nulled when the "combos" config changes.
+	// volatile: built/read on the client thread but invalidated from onConfigChanged (which may be the EDT).
+	private volatile Map<String, Integer> comboColorCache;
+
+	// Parallel to comboColorCache: memoized java.awt.Color instances (so the overlay doesn't new up a Color per
+	// box per frame). Invalidated wherever comboColorCache is nulled. volatile for the same reason.
+	private volatile Map<String, java.awt.Color> comboColorObjCache;
+
+	// Cached per host tag (LayoutableThing.name) cell index -> combo group map returned by getComboCellGroups,
+	// so FakeItemOverlay.render doesn't re-read the comboslots config + rebuild a HashMap every paint. The whole
+	// cache is cleared whenever combo slots change (every ComboSlots.write in this file, the "combos" config key,
+	// and tab rename/delete). Callers only READ the returned map. volatile: read on the client thread (render),
+	// cleared from onConfigChanged (possibly the EDT).
+	private volatile Map<String, Map<Integer, String>> comboCellGroupsCache = new ConcurrentHashMap<>();
+
+	// Per host tag, the cell index -> winner id map we last pinned into its CORE layout while it was INACTIVE.
+	// Lets maintainComboCoreTab skip the loadLayout + saveLayout for an inactive tab whose winners haven't
+	// changed since (nothing edits an unopened tab's layout). Dropped while the tab is active; cleared on
+	// startup and when a tab's combo data is removed/renamed. Concurrent for the same reason as comboBankTags:
+	// get/put/remove on the client thread (maintainComboCoreTab) vs clear on the EDT (startUp).
+	private final Map<String, Map<Integer, Integer>> lastCorePinnedWinners = new ConcurrentHashMap<>();
+
+	// Negative priority so the combo panel sorts ABOVE core panels (the Configuration wrench is priority 0).
+	private static final int COMBO_PANEL_PRIORITY = -100;
+	private com.banktaglayouts.combo.ComboPanel comboPanel;
+	private net.runelite.client.ui.NavigationButton comboNavButton;
 
 	private void updateButton() {
 		Widget parent = client.getWidget(ComponentID.BANK_CONTENT_CONTAINER);
@@ -347,14 +389,40 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		overlayManager.add(fakeItemOverlay);
 		spriteManager.addSpriteOverrides(Sprites.values());
 
+		comboPanel = new com.banktaglayouts.combo.ComboPanel(this);
+		comboNavButton = net.runelite.client.ui.NavigationButton.builder()
+			.tooltip("Combo Tags")
+			.icon(net.runelite.client.util.ImageUtil.loadImageResource(getClass(), "/com/banktaglayouts/auto_layout.png"))
+			.priority(COMBO_PANEL_PRIORITY)
+			.panel(comboPanel)
+			.build();
+		clientToolbar.addNavigation(comboNavButton);
+		comboTagSyncInProgress = false;
+		comboMembersUntagged.clear();
+		lastCorePinnedWinners.clear();
+		clientThread.invokeLater(() -> registerComboBankTags());
+
 		clientThread.invokeLater(() -> {
 			registerListeners();
 			if (client.getGameState() == GameState.LOGGED_IN) {
 				showLayoutPreviewButton = null;
+				maintainAllComboCoreTabs();
+				// If a combo-host CORE tab is already open, reopen it so the just-registered ComboBankTag is
+				// captured into the active filter (membership is OR'd in only at openTag time).
+				recaptureActiveComboCoreTab();
 				updateButton();
 				bankSearch.layoutBank();
 			}
 		});
+	}
+
+	/** Reopens the active tab if it is a combo-host CORE tab, so a newly-registered ComboBankTag takes effect. */
+	private void recaptureActiveComboCoreTab() {
+		String active = bankTagsService.getActiveTag();
+		if (active != null && comboBankTags.containsKey(active)
+			&& isVanillaLayoutEnabled(LayoutableThing.bankTag(active))) {
+			bankTagsService.openBankTag(active, net.runelite.client.plugins.banktags.BankTagsService.OPTION_ALLOW_MODIFICATIONS);
+		}
 	}
 
 	@Override
@@ -364,6 +432,15 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		overlayManager.remove(fakeItemOverlay);
 		spriteManager.removeSpriteOverrides(Sprites.values());
 		unregisterListeners();
+
+		if (comboNavButton != null) {
+			clientToolbar.removeNavigation(comboNavButton);
+		}
+
+		// Run on the client thread (mirroring startUp's registerComboBankTags) — tag (un)registration mutates
+		// RuneLite's unsynchronized customTags HashMap, which the client-thread registerComboBankTags also
+		// writes to; doing the remove on the EDT can corrupt/CME it. Independent of game state.
+		clientThread.invokeLater(this::unregisterComboBankTags);
 
 		clientThread.invokeLater(() -> {
 			if (client.getGameState() == GameState.LOGGED_IN) {
@@ -380,6 +457,25 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	public void onConfigChanged(ConfigChanged event)
 	{
 		if (CONFIG_GROUP.equals(event.getGroup())) {
+			if (com.banktaglayouts.combo.ComboStore.CONFIG_KEY.equals(event.getKey())) {
+				comboColorCache = null; // a group's color (or set of groups) changed → rebuild on next read
+				comboColorObjCache = null; // drop memoized Color instances alongside the ARGB map
+				invalidateComboCellGroupsCache(); // a member/variant change can alter the resolved winner shown
+				// Editing a combo in the panel (reorder members, change variant, etc.) can change a cell's winner
+				// or ghost. Re-resolve + relayout on the client thread (onConfigChanged may be on the EDT) so an
+				// already-open bank reflects it now instead of at the next bank interaction. Safe if no bank open.
+				clientThread.invokeLater(() -> {
+					if (client.getGameState() == GameState.LOGGED_IN) {
+						maintainAllComboCoreTabs();
+						bankSearch.layoutBank();
+					}
+				});
+			}
+			if ("comboReplaceOnList".equals(event.getKey())) {
+				if (comboPanel != null) {
+					SwingUtilities.invokeLater(comboPanel::rebuild);
+				}
+			}
 			if ("layoutEnabledByDefault".equals(event.getKey())) {
 				clientThread.invokeLater(() -> applyCustomBankTagItemPositions());
 			} else if ("showAutoLayoutButton".equals(event.getKey())) {
@@ -537,17 +633,31 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 			}
 		}
 
+		// A single tag tab deleted with nothing renamed in: drop the combo data keyed to it. RuneLite deletes
+		// tabs one at a time, so an empty newTags with MORE than one removed tag is a bulk/transient rewrite
+		// (e.g. an import or a clear that slipped past the profile guard) — not real deletions — and must NOT
+		// purge anything. Combo group definitions are global, so only the per-tab cells/winner-map/tag go.
+		if (newTags.isEmpty()) {
+			if (oldTags.size() == 1) {
+				removeComboDataForTab(oldTags.iterator().next());
+			}
+			return;
+		}
+
 		// Check if it's a rename or something else.
 		if (oldTags.size() != 1 || newTags.size() != 1) return;
 
-		LayoutableThing oldName = LayoutableThing.bankTag(oldTags.iterator().next());
+		String oldTagName = oldTags.iterator().next();
 		String newName = newTags.iterator().next();
+		LayoutableThing oldName = LayoutableThing.bankTag(oldTagName);
 
 		Layout oldLayout = getBankOrderNonPreview(oldName);
 		if (oldLayout != null) {
 			saveLayout(LayoutableThing.bankTag(newName), oldLayout);
 			configManager.unsetConfiguration(CONFIG_GROUP, oldName.configKey());
 		}
+		// Carry the tab's combo cells over to the new name too, else they orphan under the dead tag.
+		migrateComboDataForTab(oldTagName, newName);
 	}
 
 	@Provides
@@ -712,6 +822,20 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		inventorySetup = newSetup;
 	}
 
+	@Subscribe
+	public void onItemContainerChanged(ItemContainerChanged event) {
+		// The bank changed → combo winners may have rotated. Refresh each CORE host tab's membership + pinned
+		// winners NOW, before the bank rebuilds, so RuneLite renders the new winners in place (and never
+		// auto-floats a stale one). Hub tabs are untouched (maintainComboCoreTab no-ops on them).
+		if (event.getContainerId() == InventoryID.BANK.getId()) {
+			comboResolver.invalidateBankCache(); // bank changed → drop the cached base→id snapshot before resolving
+			// Scan the config keyspace for host tags ONCE per bank change, then share the list with both passes.
+			List<String> hostTags = comboHostTags();
+			registerComboBankTags(hostTags);
+			maintainAllComboCoreTabs(hostTags);
+		}
+	}
+
 	@Subscribe(priority = -1f) // "Bank Tags" plugin also sets the scroll bar height; run after it. We also need to run after "Inventory Setups" to get the bank title it sets.
 	public void onScriptPreFired(ScriptPreFired event) {
 		if (event.getScriptId() != ScriptID.BANKMAIN_FINISHBUILDING) {
@@ -746,6 +870,15 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 				cancelLayoutPreview();
 			}
 
+			// CORE tabs: if RuneLite moved a combo winner (e.g. the user dragged it), make the cell's index
+			// follow it so the box stays on the item instead of snapping back on the next maintain.
+			if (layoutable != null && layoutable.isBankTab() && isVanillaLayoutEnabled(layoutable)) {
+				reconcileComboCoreCells(layoutable.name);
+			}
+
+			// Keep each combo cell's OWNED winner tagged (so it's a withdrawable tab member), deferred to the
+			// next tick since mutating tags during the build crashes the client. This frame renders as-is.
+			syncComboWinnerTags(layoutable);
 			applyCustomBankTagItemPositions(false, false);
 
 			lastLayoutable = layoutable;
@@ -941,6 +1074,612 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 				.build();
 	}
 
+
+	/**
+	 * Stats-aware combo base id for an item: placeholders/noted/same-stat variants and cosmetic recolors collapse
+	 * to one base, but a stat-changing variation (an imbued DK ring) is its OWN base — see
+	 * {@link com.banktaglayouts.combo.ItemIndex#statBaseOfCanon}. Used for membership AND bank ownership so an
+	 * imbued item resolves to its own member. Client thread.
+	 */
+	private int comboBaseOf(int itemId) {
+		return com.banktaglayouts.combo.ItemIndex.comboBaseOf(itemManager, itemId);
+	}
+
+	/** A combo group's member base ids in priority order (the manual list order). */
+	public List<Integer> orderedComboMembers(String comboGroup) {
+		return comboResolver.orderedMemberBases(comboGroup);
+	}
+
+	// ======================================================================================================
+	// CORE (built-in) layout combo cells.
+	//
+	// On a tab that uses RuneLite's built-in bank-tags layout, RuneLite (LayoutManager.layout) owns rendering
+	// and runs DURING the bank build, before any of this plugin's hooks. It auto-appends any in-tab item not
+	// pinned in the layout int[] to the first empty slot and PERSISTS it — so rotating a combo winner used to
+	// leave a stray floated placeholder. We avoid that by being the single source of truth RuneLite reads:
+	//   * membership: a per-tab ComboBankTag (OR'd into the tab filter) makes ONLY owned winners pass, so
+	//     non-winner members / leftover placeholders never enter the tab and can't be auto-floated;
+	//   * position: we pin each cell's winner into the core layout int[] (and scrub stray member copies) on
+	//     every bank change — before the build — mutating the LIVE active Layout object so it takes effect
+	//     this frame. An owned winner renders as a real widget; a ghost (unowned) renders as RuneLite's own
+	//     faded "layout placeholder". No per-winner tagging, so none of the old tag-sync race.
+	// ======================================================================================================
+
+	/** Tags currently hosting at least one combo cell (from the {@code comboslots_<tag>} config keys). */
+	private List<String> comboHostTags() {
+		List<String> tags = new ArrayList<>();
+		String prefix = CONFIG_GROUP + "." + com.banktaglayouts.combo.ComboSlots.CONFIG_KEY_PREFIX;
+		for (String key : configManager.getConfigurationKeys(CONFIG_GROUP)) {
+			if (key.startsWith(prefix)) {
+				tags.add(key.substring(prefix.length()));
+			}
+		}
+		return tags;
+	}
+
+	/** Ensures every combo-host tab has a registered {@link com.banktaglayouts.combo.ComboBankTag}. */
+	private void registerComboBankTags() {
+		registerComboBankTags(comboHostTags());
+	}
+
+	/** As {@link #registerComboBankTags()} but with a precomputed host-tag list (avoids re-scanning the config). */
+	private void registerComboBankTags(List<String> hostTags) {
+		for (String hostTag : hostTags) {
+			ensureComboBankTagRegistered(hostTag);
+		}
+	}
+
+	/**
+	 * Registers a {@link com.banktaglayouts.combo.ComboBankTag} for the host tag if it has none yet; returns
+	 * true if it was NEWLY registered. A new registration must be captured into an already-open tab's filter
+	 * via {@link #recaptureActiveComboCoreTab()} (the filter is built once at openTag); for an existing
+	 * registration we just mutate the same tag instance, so a relayout is enough.
+	 */
+	private boolean ensureComboBankTagRegistered(String hostTag) {
+		if (comboBankTags.containsKey(hostTag)) {
+			return false;
+		}
+		com.banktaglayouts.combo.ComboBankTag t = new com.banktaglayouts.combo.ComboBankTag();
+		comboBankTags.put(hostTag, t);
+		tagManager.registerTag(hostTag, t);
+		return true;
+	}
+
+	private void unregisterComboBankTags() {
+		for (String hostTag : comboBankTags.keySet()) {
+			tagManager.unregisterTag(hostTag);
+		}
+		comboBankTags.clear();
+	}
+
+	/**
+	 * Drops every per-tab combo trace of a deleted host tab: its cells ({@code comboslots_}), its hub
+	 * winner map ({@code combowinners_}), and its registered {@link com.banktaglayouts.combo.ComboBankTag}.
+	 * Combo GROUP definitions are global (shared across tabs), so they are deliberately left untouched.
+	 * Client thread (touches TagManager).
+	 */
+	private void removeComboDataForTab(String hostTag) {
+		boolean hadCells = !com.banktaglayouts.combo.ComboSlots.read(configManager, hostTag).isEmpty();
+		com.banktaglayouts.combo.ComboSlots.write(configManager, hostTag, Collections.emptyList());
+		invalidateComboCellGroupsCache();
+		writeComboWinnerMap(hostTag, new HashMap<>());
+		lastCorePinnedWinners.remove(hostTag);
+		comboMembersUntagged.remove(hostTag); // recreating a tab with this name should re-run untag cleanup
+		if (comboBankTags.remove(hostTag) != null) {
+			tagManager.unregisterTag(hostTag);
+		}
+		if (hadCells) {
+			log.debug("removed combo cells for deleted tab '{}'", hostTag);
+		}
+	}
+
+	/**
+	 * Moves a renamed host tab's per-tab combo data — its cells ({@code comboslots_}), hub winner map
+	 * ({@code combowinners_}), and registered {@link com.banktaglayouts.combo.ComboBankTag} — from the old
+	 * tag name to the new one. Without this the data orphans under the dead tag: the renamed tab shows no
+	 * cells and {@link #comboHostTags()} keeps returning the dead name forever. Global combo GROUP
+	 * definitions are shared and left untouched. No-op when the old tab had no combo data. Client thread.
+	 */
+	private void migrateComboDataForTab(String oldTag, String newTag) {
+		if (oldTag.equalsIgnoreCase(newTag)) {
+			return;
+		}
+		List<com.banktaglayouts.combo.ComboSlots.Slot> slots = com.banktaglayouts.combo.ComboSlots.read(configManager, oldTag);
+		Map<Integer, Integer> winners = readComboWinnerMap(oldTag);
+		boolean wasHost = comboBankTags.containsKey(oldTag);
+		if (slots.isEmpty() && winners.isEmpty() && !wasHost) {
+			return; // nothing combo-related on the old tab
+		}
+		// Write under the new name, then clear the old keys (both writes unset when empty).
+		com.banktaglayouts.combo.ComboSlots.write(configManager, newTag, slots);
+		writeComboWinnerMap(newTag, winners);
+		com.banktaglayouts.combo.ComboSlots.write(configManager, oldTag, Collections.emptyList());
+		writeComboWinnerMap(oldTag, new HashMap<>());
+		invalidateComboCellGroupsCache();
+		lastCorePinnedWinners.remove(oldTag);
+		comboMembersUntagged.remove(oldTag); // the new name re-runs untag cleanup as needed
+		// Re-register the ComboBankTag under the new name (drop the old registration first).
+		if (comboBankTags.remove(oldTag) != null) {
+			tagManager.unregisterTag(oldTag);
+		}
+		if (!slots.isEmpty()) {
+			ensureComboBankTagRegistered(newTag);
+			// A fresh ComboBankTag starts with empty ownedWinners; populate its membership + pin its winners now
+			// so the renamed tab's cells render immediately instead of blanking until the next bank change.
+			maintainComboCoreTab(newTag);
+		}
+		log.debug("migrated combo data on rename '{}' -> '{}'", oldTag, newTag);
+	}
+
+	/** The Layout object to mutate for a host tag: the LIVE active one (if that tab is open) else the saved copy. */
+	private net.runelite.client.plugins.banktags.tabs.Layout coreLayoutFor(String hostTag) {
+		boolean active = hostTag.equalsIgnoreCase(bankTagsService.getActiveTag());
+		net.runelite.client.plugins.banktags.tabs.Layout live = active ? bankTagsService.getActiveLayout() : null;
+		return live != null ? live : layoutManager.loadLayout(hostTag);
+	}
+
+	private void maintainAllComboCoreTabs() {
+		maintainAllComboCoreTabs(comboHostTags());
+	}
+
+	/** As {@link #maintainAllComboCoreTabs()} but with a precomputed host-tag list (avoids re-scanning the config). */
+	private void maintainAllComboCoreTabs(List<String> hostTags) {
+		// Skip while the bank container hasn't loaded yet (e.g. the startUp deferral fires before the first bank
+		// build): with a null BANK container every winner resolves as a ghost, so we'd pin ghosts / clear
+		// ownedWinners on inactive tabs. The real first BANK onItemContainerChanged runs maintain properly.
+		if (client.getItemContainer(InventoryID.BANK) == null) {
+			return;
+		}
+		for (String hostTag : hostTags) {
+			maintainComboCoreTab(hostTag);
+		}
+	}
+
+	/**
+	 * Makes RuneLite render the combo cells of a CORE-layout host tab from our live resolution: refreshes the
+	 * tab's owned-winner membership, pins each cell's winner into the core layout, and scrubs stray member
+	 * copies (legacy floats). No-op for hub tabs. Client thread.
+	 */
+	private void maintainComboCoreTab(String hostTag) {
+		if (!isVanillaLayoutEnabled(LayoutableThing.bankTag(hostTag))) {
+			return; // hub tabs are rendered by applyCustomBankTagItemPositions, not RuneLite.
+		}
+		List<com.banktaglayouts.combo.ComboSlots.Slot> slots = com.banktaglayouts.combo.ComboSlots.read(configManager, hostTag);
+
+		Map<Integer, Integer> cellToWinner = new HashMap<>(); // cell index -> winner id (owned id or ghost)
+		Set<Integer> ownedWinners = new HashSet<>();
+		Set<Integer> memberBases = new HashSet<>();
+		for (com.banktaglayouts.combo.ComboSlots.Slot s : slots) {
+			memberBases.addAll(comboResolver.orderedMemberBases(s.getGroup()));
+			int winner = comboResolver.resolveWinner(s.getGroup());
+			if (winner > 0) {
+				cellToWinner.put(s.getIndex(), winner);
+				if (comboResolver.isOwnedReal(winner)) {
+					ownedWinners.add(winner);
+				}
+			}
+		}
+
+		com.banktaglayouts.combo.ComboBankTag bankTag = comboBankTags.get(hostTag);
+		if (bankTag != null) {
+			bankTag.setOwnedWinners(ownedWinners);
+		}
+		untagComboMembersOnce(hostTag, memberBases);
+
+		boolean active = hostTag.equalsIgnoreCase(bankTagsService.getActiveTag());
+		net.runelite.client.plugins.banktags.tabs.Layout live = active ? bankTagsService.getActiveLayout() : null;
+		if (live != null) {
+			// Active tab: mutate the LIVE layout object RuneLite is rendering (config-only edits don't take
+			// effect until reopen). We don't persist here — RuneLite owns saving the active layout — so a stale
+			// snapshot must never short-circuit a later inactive load.
+			lastCorePinnedWinners.remove(hostTag);
+			applyComboCellsToCore(live, cellToWinner, memberBases);
+			return;
+		}
+		// Inactive tab: operate on the SAVED layout copy. Nothing edits an unopened tab's layout, so when the
+		// resolved winners match what we last pinned there's nothing to re-correct — skip the load + save churn.
+		if (cellToWinner.equals(lastCorePinnedWinners.get(hostTag))) {
+			return;
+		}
+		net.runelite.client.plugins.banktags.tabs.Layout core = layoutManager.loadLayout(hostTag);
+		if (core == null) {
+			return;
+		}
+		if (applyComboCellsToCore(core, cellToWinner, memberBases)) {
+			layoutManager.saveLayout(core);
+		}
+		lastCorePinnedWinners.put(hostTag, new HashMap<>(cellToWinner));
+	}
+
+	/**
+	 * Pins each cell's winner at its position and removes any combo-member item sitting OUTSIDE its cell. Such
+	 * an item is always a stray (a rotated-out winner RuneLite auto-floated, or a leftover layout copy) — combo
+	 * members are never individually tagged in the core model ({@link #untagComboMembersOnce}), and a deliberately
+	 * promoted item belongs to a group with no cell, so its base isn't in {@code memberBases}. Client thread.
+	 */
+	private boolean applyComboCellsToCore(net.runelite.client.plugins.banktags.tabs.Layout core,
+			Map<Integer, Integer> cellToWinner, Set<Integer> memberBases) {
+		boolean changed = false;
+		int[] l = core.getLayout();
+		for (int pos = 0; pos < l.length; pos++) {
+			int id = l[pos];
+			if (id > 0 && !cellToWinner.containsKey(pos) && memberBases.contains(comboBaseOf(id))) {
+				core.removeItemAtPos(pos);
+				changed = true;
+			}
+		}
+		for (Map.Entry<Integer, Integer> e : cellToWinner.entrySet()) {
+			if (core.getItemAtPos(e.getKey()) != e.getValue()) {
+				core.setItemAtPos(e.getValue(), e.getKey());
+				changed = true;
+			}
+		}
+		return changed;
+	}
+
+	/**
+	 * Makes each combo cell's stored index FOLLOW its winner after RuneLite moves it (a drag in a core tab is
+	 * handled by RuneLite's own {@code dragCompleteHandler}, which swaps the live layout but knows nothing about
+	 * our cells). Run after the build: if a cell's winner is no longer at the cell's index but sits elsewhere in
+	 * the layout, move the cell's index there so the box and item stay together (and the next maintain pins it
+	 * in place instead of snapping it back). Client thread. Returns whether any cell moved.
+	 */
+	private boolean reconcileComboCoreCells(String hostTag) {
+		if (!isVanillaLayoutEnabled(LayoutableThing.bankTag(hostTag))) {
+			return false;
+		}
+		List<com.banktaglayouts.combo.ComboSlots.Slot> slots = com.banktaglayouts.combo.ComboSlots.read(configManager, hostTag);
+		if (slots.isEmpty()) {
+			return false;
+		}
+		net.runelite.client.plugins.banktags.tabs.Layout core = coreLayoutFor(hostTag);
+		if (core == null) {
+			return false;
+		}
+		int[] l = core.getLayout();
+		boolean changed = false;
+		Set<Integer> claimed = new HashSet<>();
+		for (com.banktaglayouts.combo.ComboSlots.Slot s : slots) {
+			int winner = comboResolver.resolveWinner(s.getGroup());
+			if (winner <= 0) {
+				continue;
+			}
+			int idx = s.getIndex();
+			if (idx >= 0 && idx < l.length && l[idx] == winner) {
+				claimed.add(idx);
+				continue; // still at its cell — nothing moved
+			}
+			int found = -1;
+			for (int pos = 0; pos < l.length; pos++) {
+				if (l[pos] == winner && !claimed.contains(pos)) {
+					found = pos;
+					break;
+				}
+			}
+			if (found >= 0 && found != idx) {
+				s.setIndex(found);
+				claimed.add(found);
+				changed = true;
+			}
+		}
+		if (changed) {
+			com.banktaglayouts.combo.ComboSlots.write(configManager, hostTag, slots);
+			invalidateComboCellGroupsCache();
+		}
+		return changed;
+	}
+
+	// Host tags whose combo-member items have already been untagged this session.
+	// Concurrent set: add on the client thread (untagComboMembersOnce) vs clear on the EDT (startUp).
+	private final Set<String> comboMembersUntagged = ConcurrentHashMap.newKeySet();
+
+	/**
+	 * One-shot-per-session cleanup: in the core model a combo cell's membership comes entirely from the
+	 * {@link com.banktaglayouts.combo.ComboBankTag}, so NO member of the tab's combos should be individually
+	 * tagged into the host tab. A stray tag makes RuneLite pull the item in and float it once its cell's winner
+	 * rotates or the cell moves — and untagging only the recorded winner ids (position-keyed, often stale) misses
+	 * members that rotated. So this untags EVERY currently-tagged member of the tab's combos (robust to position,
+	 * by item id) and drops the now-unused winner map. Deferred a tick — tag mutation during the build crashes
+	 * the client. Idempotent: once the tags are gone from config, later sessions find nothing to do.
+	 */
+	private void untagComboMembersOnce(String hostTag, Set<Integer> memberBases) {
+		if (!comboMembersUntagged.add(hostTag)) {
+			return;
+		}
+		List<Integer> toUntag = new ArrayList<>();
+		if (!memberBases.isEmpty()) {
+			for (int id : tagManager.getItemsForTag(Text.standardize(hostTag))) {
+				if (memberBases.contains(comboBaseOf(Math.abs(id)))) {
+					toUntag.add(id);
+				}
+			}
+		}
+		Map<Integer, Integer> winnerMap = readComboWinnerMap(hostTag);
+		if (toUntag.isEmpty() && winnerMap.isEmpty()) {
+			return;
+		}
+		clientThread.invokeLater(() -> {
+			for (int id : toUntag) {
+				copyPaste.removeTag(id, hostTag); // removes both the non-variation and variation tag forms
+			}
+			if (!winnerMap.isEmpty()) {
+				writeComboWinnerMap(hostTag, new HashMap<>());
+			}
+			bankSearch.layoutBank();
+		});
+	}
+
+	// ---- combo winner display + tags ----
+	// Per-tab map of {combo cell index → the winner item id currently shown there}. The RENDER reads this
+	// stored map (not a fresh live resolve) so the shown item is always consistent with the tag state — that
+	// prevents a 1-frame ghost flash (and the old winner floating to the top-left) while the deferred tag
+	// sync catches up. Owned winners are tagged (so the cell is a withdrawable tab member); not-owned winners
+	// stay untagged and draw as a faded fake item. comboslots stays index:group.
+	public static final String COMBO_WINNER_TAGS_PREFIX = "combowinners_";
+
+	private Map<Integer, Integer> readComboWinnerMap(String hostTag) {
+		return com.banktaglayouts.combo.ComboCsv.readIntMap(configManager, COMBO_WINNER_TAGS_PREFIX + hostTag);
+	}
+
+	private void writeComboWinnerMap(String hostTag, Map<Integer, Integer> map) {
+		com.banktaglayouts.combo.ComboCsv.writeIntMap(configManager, COMBO_WINNER_TAGS_PREFIX + hostTag, map);
+	}
+
+	/** What each combo cell SHOULD display right now: cell index → live-resolved winner (owned item or ghost). */
+	private Map<Integer, Integer> computeDesiredComboWinnerMap(LayoutableThing layoutable) {
+		Map<Integer, Integer> map = new HashMap<>();
+		for (com.banktaglayouts.combo.ComboSlots.Slot slot : com.banktaglayouts.combo.ComboSlots.read(configManager, layoutable.name)) {
+			int w = comboResolver.resolveWinner(slot.getGroup());
+			if (w > 0) {
+				map.put(slot.getIndex(), w);
+			}
+		}
+		return map;
+	}
+
+	private boolean comboTagSyncInProgress = false;
+
+	/**
+	 * Cheap per-build check: if the displayed-winner map differs from what each cell should show, schedule the
+	 * tag/untag + map update for the next tick (mutating tags DURING the bank build crashes the client).
+	 */
+	private void syncComboWinnerTags(LayoutableThing layoutable) {
+		if (comboTagSyncInProgress || layoutable == null || !layoutable.isBankTab()) {
+			return;
+		}
+		// CORE tabs don't use the winner-map/tagging machinery — RuneLite renders their cells from the layout
+		// we maintain in maintainComboCoreTab (driven off onItemContainerChanged). Nothing to sync here.
+		if (isVanillaLayoutEnabled(layoutable)) {
+			return;
+		}
+		List<com.banktaglayouts.combo.ComboSlots.Slot> slots =
+			com.banktaglayouts.combo.ComboSlots.read(configManager, layoutable.name);
+		Map<Integer, Integer> stored = readComboWinnerMap(layoutable.name);
+		if (slots.isEmpty() && stored.isEmpty()) {
+			return;
+		}
+		if (computeDesiredComboWinnerMap(layoutable).equals(stored)) {
+			return;
+		}
+		comboTagSyncInProgress = true;
+		clientThread.invokeLater(() -> {
+			try {
+				doComboWinnerTagSync(layoutable);
+			}
+			finally {
+				comboTagSyncInProgress = false;
+			}
+		});
+	}
+
+	/** Applies the deferred winner update: tag the now-shown owned winners, untag the ones that left, store the map. */
+	private void doComboWinnerTagSync(LayoutableThing layoutable) {
+		String hostTag = layoutable.name;
+		Map<Integer, Integer> desired = computeDesiredComboWinnerMap(layoutable);
+		Map<Integer, Integer> stored = readComboWinnerMap(hostTag);
+		if (desired.equals(stored)) {
+			return;
+		}
+		// Write the map FIRST: the render is driven by it, and a tag change below can trigger a relayout
+		// mid-sync. If the map still showed the old winner then, the freshly-tagged new winner wouldn't be
+		// injected at its cell and would get auto-placed at the first empty slot (and persisted).
+		writeComboWinnerMap(hostTag, desired);
+		Set<Integer> desiredWinners = new HashSet<>(desired.values());
+		Set<Integer> storedWinners = new HashSet<>(stored.values());
+		// Untag winners no longer shown by any cell.
+		for (int id : storedWinners) {
+			if (!desiredWinners.contains(id)) {
+				tagManager.removeTag(id, hostTag);
+				copyPaste.removeTag(id, hostTag);
+			}
+		}
+		// Tag currently-shown OWNED winners; ensure a now-ghost winner is untagged.
+		for (int id : desiredWinners) {
+			if (comboResolver.isOwnedReal(id)) {
+				tagManager.addTag(id, hostTag, false);
+			}
+			else {
+				tagManager.removeTag(id, hostTag);
+				copyPaste.removeTag(id, hostTag);
+			}
+		}
+		// CORE tabs never reach here (syncComboWinnerTags returns early for them); this path is hub-only.
+		bankSearch.layoutBank();
+	}
+
+	/**
+	 * For the given host tab, maps each combo cell's layout index → its combo group name. Cached per host tag
+	 * (this is a render hot path); the cache is cleared by {@link #invalidateComboCellGroupsCache()} on every
+	 * combo-slot mutation. The returned map is the shared cached instance — callers must only READ it.
+	 */
+	public Map<Integer, String> getComboCellGroups(LayoutableThing layoutable) {
+		if (layoutable == null || !layoutable.isBankTab()) {
+			return Collections.emptyMap();
+		}
+		Map<String, Map<Integer, String>> cache = comboCellGroupsCache;
+		Map<Integer, String> cached = cache.get(layoutable.name);
+		if (cached != null) {
+			return cached;
+		}
+		Map<Integer, String> result = new HashMap<>();
+		for (com.banktaglayouts.combo.ComboSlots.Slot slot : com.banktaglayouts.combo.ComboSlots.read(configManager, layoutable.name)) {
+			result.put(slot.getIndex(), slot.getGroup());
+		}
+		cache.put(layoutable.name, result);
+		return result;
+	}
+
+	/** Drops the cached {@link #getComboCellGroups} maps. Called on every combo-slot mutation in this file. */
+	private void invalidateComboCellGroupsCache() {
+		comboCellGroupsCache.clear();
+	}
+
+	/** The combo group whose current (live-resolved) winner equals the given item id in the host tab, or null. */
+	public String getComboGroupForItem(LayoutableThing layoutable, int itemId) {
+		if (layoutable == null || !layoutable.isBankTab() || itemId <= 0) {
+			return null;
+		}
+		for (com.banktaglayouts.combo.ComboSlots.Slot slot : com.banktaglayouts.combo.ComboSlots.read(configManager, layoutable.name)) {
+			if (comboResolver.resolveWinner(slot.getGroup()) == itemId) {
+				return slot.getGroup();
+			}
+		}
+		return null;
+	}
+
+	/** First grid index that's empty in the layout AND not already occupied by another combo cell. */
+	private int firstEmptyIndexAvoidingCombos(Layout layout, List<com.banktaglayouts.combo.ComboSlots.Slot> comboSlots) {
+		Set<Integer> comboIndices = new HashSet<>();
+		for (com.banktaglayouts.combo.ComboSlots.Slot s : comboSlots) {
+			comboIndices.add(s.getIndex());
+		}
+		for (int i = 0; ; i++) {
+			if (layout.getItemAtIndex(i) <= 0 && !comboIndices.contains(i)) {
+				return i;
+			}
+		}
+	}
+
+	/** First position empty in the CORE layout AND not occupied by another combo cell. */
+	private int firstEmptyCorePos(net.runelite.client.plugins.banktags.tabs.Layout core, List<com.banktaglayouts.combo.ComboSlots.Slot> comboSlots) {
+		Set<Integer> comboIndices = new HashSet<>();
+		for (com.banktaglayouts.combo.ComboSlots.Slot s : comboSlots) {
+			comboIndices.add(s.getIndex());
+		}
+		int[] l = core != null ? core.getLayout() : new int[0];
+		for (int i = 0; ; i++) {
+			boolean empty = i >= l.length || l[i] <= 0;
+			if (empty && !comboIndices.contains(i)) {
+				return i;
+			}
+		}
+	}
+
+	/**
+	 * HUB tabs only: tags + records a combo cell's current owned winner immediately (safe — callers run off the
+	 * bank build) so the cell resolves to the real item at once instead of waiting on the deferred sync. (CORE
+	 * tabs go through maintainComboCoreTab instead.)
+	 */
+	private void placeComboWinnerNow(String hostTag, int cellIndex, String comboGroup) {
+		int winner = comboResolver.resolveWinner(comboGroup);
+		Map<Integer, Integer> winnerMap = readComboWinnerMap(hostTag);
+		if (winner > 0) {
+			winnerMap.put(cellIndex, winner);
+			if (comboResolver.isOwnedReal(winner)) {
+				tagManager.addTag(winner, hostTag, false);
+			}
+		}
+		else {
+			winnerMap.remove(cellIndex);
+		}
+		writeComboWinnerMap(hostTag, winnerMap);
+	}
+
+	/** The single per-group color (used for both the box and the item name), from the group's JSON. */
+	public java.awt.Color getComboColor(String comboGroup) {
+		Map<String, Integer> colors = comboColorCache;
+		if (colors == null) {
+			colors = new HashMap<>();
+			for (com.banktaglayouts.combo.ComboGroup g : com.banktaglayouts.combo.ComboStore.all(configManager, gson)) {
+				colors.put(g.name, g.color);
+			}
+			comboColorCache = colors;
+			comboColorObjCache = new ConcurrentHashMap<>(); // rebuilt alongside comboColorCache
+		}
+		// Memoize the Color instance so the overlay (per box, per frame) doesn't allocate a new one each paint.
+		Map<String, java.awt.Color> objCache = comboColorObjCache;
+		java.awt.Color cached = objCache.get(comboGroup);
+		if (cached != null) {
+			return cached;
+		}
+		Integer c = colors.get(comboGroup);
+		java.awt.Color color = new java.awt.Color(c != null ? c : 0xFFFF00);
+		objCache.put(comboGroup, color);
+		return color;
+	}
+
+	/** Embeds a combo group as a smart cell in the currently-open bank tag tab. Called from the side panel. */
+	public void addComboToOpenTab(String comboGroup) {
+		clientThread.invokeLater(() -> {
+			String hostTag = tabInterface.getActiveTag();
+			if (hostTag == null || hostTag.isEmpty() || hostTag.equals("tagtabs") || hostTag.startsWith("_invsetup_")) {
+				chatMessage("Open a bank tag tab first, then add the combo to it.");
+				return;
+			}
+
+			LayoutableThing layoutable = LayoutableThing.bankTag(hostTag);
+			boolean core = isVanillaLayoutEnabled(layoutable);
+			boolean wasHost = comboBankTags.containsKey(hostTag);
+			Layout layout = core ? null : getBankOrderNonPreview(layoutable);
+			if (!core && layout == null) {
+				layout = Layout.emptyLayout();
+			}
+
+			// First behave like "Replace in tab": consolidate the combo if it's already (even loosely) present.
+			// Only when it isn't in the tab at all (ABSENT) do we fall through and add a fresh cell.
+			ComboReplaceResult result = replaceComboIntoTab(hostTag, layout, comboGroup);
+			if (result != ComboReplaceResult.ABSENT) {
+				if (core) {
+					if (!wasHost) {
+						recaptureActiveComboCoreTab(); // capture the new ComboBankTag into the open tab's filter
+					}
+				}
+				else {
+					saveLayoutNonPreview(layoutable, layout);
+				}
+				bankSearch.layoutBank();
+				chatMessage((result == ComboReplaceResult.ADDED ? "Replaced" : "Cleaned up") + " combo \"" + comboGroup + "\" in tab \"" + hostTag + "\".");
+				return;
+			}
+
+			// Not in the tab → add a new smart cell at the first empty slot.
+			List<com.banktaglayouts.combo.ComboSlots.Slot> slots = com.banktaglayouts.combo.ComboSlots.read(configManager, hostTag);
+			int index;
+			if (core) {
+				index = firstEmptyCorePos(coreLayoutFor(hostTag), slots);
+			}
+			else {
+				index = firstEmptyIndexAvoidingCombos(layout, slots);
+				saveLayoutNonPreview(layoutable, layout); // ensure the tab's hub layout is enabled so the cell renders
+			}
+			slots.add(new com.banktaglayouts.combo.ComboSlots.Slot(index, comboGroup));
+			com.banktaglayouts.combo.ComboSlots.write(configManager, hostTag, slots);
+			invalidateComboCellGroupsCache();
+			if (core) {
+				ensureComboBankTagRegistered(hostTag); // this tab is now a combo host — give it a ComboBankTag
+				maintainComboCoreTab(hostTag);         // membership + pin the new cell's winner
+				if (!wasHost) {
+					recaptureActiveComboCoreTab(); // capture the new ComboBankTag into the open tab's filter
+				}
+			}
+			else {
+				placeComboWinnerNow(hostTag, index, comboGroup);
+			}
+			bankSearch.layoutBank();
+			chatMessage("Added combo \"" + comboGroup + "\" to tab \"" + hostTag + "\".");
+		});
+	}
+
 	private void applyCustomBankTagItemPositions() {
 		applyCustomBankTagItemPositions(true, false);
 	}
@@ -970,6 +1709,29 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 			cleanItemsNotInBankTag(layout, layoutable);
 		}
 
+		// COMBO CELLS: inject each cell's live winner into the IN-MEMORY layout at the cell index (never
+		// persisted — stripped before saveLayout below). For an OWNED winner this tells assignItemPositions
+		// to place the real (tagged, via syncComboWinnerTags) item widget there → native Withdraw etc. For a
+		// not-owned winner there's no widget, so it becomes the faded ghost FakeItem.
+		List<Integer> injectedComboIndices = new ArrayList<>();
+		if (!isShowingPreview() && layoutable.isBankTab()) {
+			// Use the STORED display winner per cell (kept in lockstep with the tags by the deferred sync) so
+			// the render never shows an untagged/ghost winner mid-transition. Fresh cells with no stored entry
+			// fall back to a live resolve until the next sync populates the map.
+			Map<Integer, Integer> winnerMap = readComboWinnerMap(layoutable.name);
+			for (Map.Entry<Integer, String> cell : getComboCellGroups(layoutable).entrySet()) {
+				int index = cell.getKey();
+				int stored = winnerMap.getOrDefault(index, -1);
+				// Only resolve live (a bank lookup) when there's no stored winner to use.
+				int winner = stored > 0 ? stored : comboResolver.resolveWinner(cell.getValue());
+				int occupant = layout.getItemAtIndex(index);
+				if (winner > 0 && occupant <= 0) {
+					layout.putItem(winner, index);
+					injectedComboIndices.add(index);
+				}
+			}
+		}
+
 		indexToWidget.putAll(assignItemPositions(layout, bankItems));
 		moveDuplicateItem();
 		updateFakeItems(layout);
@@ -989,6 +1751,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		}
 		lastHeight = height;
 
+		// Strip the transient combo-winner entries so the combo cell is NEVER persisted into layout_.
+		for (int idx : injectedComboIndices) {
+			layout.clearIndex(idx);
+		}
 		saveLayout(layoutable, layout);
 		log.debug("saved tag " + layoutable);
 	}
@@ -1106,7 +1872,22 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	public int dragStartY = 0;
 	public int dragStartScroll = 0;
 
-	@Override public MouseEvent mousePressed(MouseEvent mouseEvent) { return mouseEvent; }
+	// Mouse position + scroll at the last left-button press, in canvas space. Used by FakeItemOverlay to make a
+	// combo box follow a RuneLite-dragged combo cell in CORE tabs (where RuneLite, not this plugin, owns the drag).
+	public int comboDragPressX = 0;
+	public int comboDragPressY = 0;
+	public int comboDragPressScroll = 0;
+
+	@Override
+	public MouseEvent mousePressed(MouseEvent mouseEvent) {
+		if (mouseEvent.getButton() == MouseEvent.BUTTON1) {
+			comboDragPressX = mouseEvent.getX();
+			comboDragPressY = mouseEvent.getY();
+			Widget items = client.getWidget(ComponentID.BANK_ITEM_CONTAINER);
+			comboDragPressScroll = items != null ? items.getScrollY() : 0;
+		}
+		return mouseEvent;
+	}
 	@Override public MouseEvent mouseReleased(MouseEvent mouseEvent) {
 		if (mouseEvent.getButton() != MouseEvent.BUTTON1) return mouseEvent;
 		clientThread.invokeLater(() -> {
@@ -1179,6 +1960,211 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 
 		addFakeItemMenuEntries(menuEntryAdded);
 		addDuplicateItemMenuEntries(menuEntryAdded);
+		colorComboItemName(menuEntryAdded);
+	}
+
+	/**
+	 * For a combo "smart cell" under the cursor: drop RuneLite's per-item tag/layout entries (they would untag,
+	 * unlayout, duplicate or edit-tags the surfaced item — all wrong for a cell) and add the combo actions:
+	 * remove the cell, or replace the cell with the item it currently shows. The combo actions sit just under
+	 * the Withdraw options so Withdraw stays the default left-click.
+	 *
+	 * <p>Done in {@link MenuOpened} rather than {@link MenuEntryAdded} because RuneLite's own entries are created
+	 * (by TabInterface/BankTagsPlugin reacting to the game's Examine entry) without firing MenuEntryAdded — so
+	 * they're only reliably present, and reliably recolorable, once the whole menu is open.
+	 */
+	private boolean customizeComboCellMenu(MenuOpened event) {
+		Widget bankContainer = client.getWidget(ComponentID.BANK_CONTAINER);
+		if (bankContainer == null || bankContainer.isHidden()) {
+			return false;
+		}
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		if (layoutable == null || !layoutable.isBankTab()) {
+			return false;
+		}
+		boolean core = isVanillaLayoutEnabled(layoutable);
+		if (!core && !hasLayoutEnabled(layoutable)) {
+			return false; // hub cells need the hub layout on; core cells are rendered by RuneLite
+		}
+		int index = getMouseIndex();
+		if (index == -1) {
+			return false;
+		}
+		String group = getComboCellGroups(layoutable).get(index);
+		if (group == null) {
+			return false; // not a combo cell
+		}
+
+		// A hub ghost (unowned) builds its own placeholder-style menu in addComboGhostMenuEntries — leave it.
+		if (!core) {
+			int ghostWinner = comboResolver.resolveWinner(group);
+			if (ghostWinner > 0 && !comboResolver.isOwnedReal(ghostWinner)) {
+				return true;
+			}
+		}
+
+		// Drop RuneLite's per-item entries that would act on the surfaced item rather than the cell:
+		// "Remove-tag (<tag>)", "Edit-tags", "Duplicate-item" (all layouts) and the core ghost's "Remove-layout".
+		MenuEntry[] entries = client.getMenuEntries();
+		List<MenuEntry> kept = new ArrayList<>(entries.length);
+		for (MenuEntry e : entries) {
+			String opt = e.getOption();
+			if (opt != null && (opt.startsWith("Remove-tag")
+				|| opt.startsWith("Edit-tags")
+				|| opt.startsWith("Duplicate-item")
+				|| opt.equals(OPEN_COMBO) // the hover-relabeled placeholder entry; re-added cleanly below
+				|| (core && opt.startsWith(REMOVE_FROM_LAYOUT_MENU_OPTION)))) {
+				continue;
+			}
+			kept.add(e);
+		}
+
+		// Insert the combo actions just BELOW the Withdraw block (index 0 is the bottom "Cancel" entry, so the
+		// lowest-indexed "Withdraw" entry is the bottom of that block). Falls back to the top if there's no
+		// Withdraw entry (e.g. a ghost cell). Order ends up Withdraw…, Remove combo, Replace combo, Examine….
+		int insertAt = kept.size();
+		for (int i = 0; i < kept.size(); i++) {
+			String opt = kept.get(i).getOption();
+			if (opt != null && opt.startsWith("Withdraw")) {
+				insertAt = i;
+				break;
+			}
+		}
+		client.setMenuEntries(kept.toArray(new MenuEntry[0]));
+
+		int at = insertAt;
+		int winner = comboResolver.resolveWinner(group);
+		if (winner > 0) {
+			client.createMenuEntry(at++)
+				.setOption(REPLACE_COMBO_WITH_ITEM)
+				.setType(MenuAction.RUNELITE_OVERLAY)
+				.setTarget(ColorUtil.wrapWithColorTag(itemName(winner), itemTooltipColor))
+				.setParam0(index);
+		}
+		client.createMenuEntry(at++)
+			.setOption(REMOVE_COMBO)
+			.setType(MenuAction.RUNELITE_OVERLAY)
+			.setTarget(ColorUtil.wrapWithColorTag(comboDisplayName(group), itemTooltipColor))
+			.setParam0(index);
+		// "Edit <name>" on top (above Withdraw is avoided — for owned cells this lands below it).
+		client.createMenuEntry(at)
+			.setOption(OPEN_COMBO)
+			.setType(MenuAction.RUNELITE_OVERLAY)
+			.setTarget(ColorUtil.wrapWithColorTag(comboDisplayName(group), itemTooltipColor))
+			.setParam0(index)
+			.onClick(me -> openComboInPanel(group));
+
+		// Recolor the cell's winner entries (Withdraw/Examine/…) to the group color over the WHOLE open menu —
+		// colorComboItemName runs per MenuEntryAdded and can miss the top (default) entry; doing it here covers it.
+		if (config.comboColorName() && winner > 0) {
+			java.awt.Color color = getComboColor(group);
+			for (MenuEntry e : client.getMenuEntries()) {
+				if (e.getItemId() == winner) {
+					String n = Text.removeTags(e.getTarget());
+					if (!n.isEmpty()) {
+						e.setTarget(ColorUtil.wrapWithColorTag(n, color));
+					}
+				}
+			}
+		}
+		return true;
+	}
+
+	/** A combo group's display name with the storage brackets stripped (e.g. "[MeleeLegs]" → "MeleeLegs"). */
+	private static String comboDisplayName(String group) {
+		return (group.length() >= 2 && group.startsWith("[") && group.endsWith("]"))
+			? group.substring(1, group.length() - 1) : group;
+	}
+
+	/** Removes the combo cell at the given layout index from the currently-open tab. */
+	private void removeComboCell(int index) {
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		if (layoutable == null || !layoutable.isBankTab()) {
+			return;
+		}
+		List<com.banktaglayouts.combo.ComboSlots.Slot> slots =
+			com.banktaglayouts.combo.ComboSlots.read(configManager, layoutable.name);
+		if (slots.removeIf(s -> s.getIndex() == index)) {
+			com.banktaglayouts.combo.ComboSlots.write(configManager, layoutable.name, slots);
+			invalidateComboCellGroupsCache();
+			if (isVanillaLayoutEnabled(layoutable)) {
+				// Clear the removed cell's pinned winner from the core layout, then refresh the rest.
+				net.runelite.client.plugins.banktags.tabs.Layout core = coreLayoutFor(layoutable.name);
+				if (core != null) {
+					core.removeItemAtPos(index);
+					layoutManager.saveLayout(core);
+				}
+				maintainComboCoreTab(layoutable.name);
+			}
+			bankSearch.layoutBank();
+		}
+	}
+
+	/** Removes the combo cell and tags the item it currently shows into the tab at the cell's spot. */
+	private void replaceComboCellWithItem(int index) {
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		if (layoutable == null || !layoutable.isBankTab()) {
+			return;
+		}
+		List<com.banktaglayouts.combo.ComboSlots.Slot> slots =
+			com.banktaglayouts.combo.ComboSlots.read(configManager, layoutable.name);
+		com.banktaglayouts.combo.ComboSlots.Slot cell = slots.stream()
+			.filter(s -> s.getIndex() == index).findFirst().orElse(null);
+		if (cell == null) {
+			return;
+		}
+		int winner = comboResolver.resolveWinner(cell.getGroup());
+		boolean core = isVanillaLayoutEnabled(layoutable);
+		slots.removeIf(s -> s.getIndex() == index);
+		com.banktaglayouts.combo.ComboSlots.write(configManager, layoutable.name, slots);
+		invalidateComboCellGroupsCache();
+		if (winner > 0) {
+			// Promote the winner to a normal tagged+laid-out item, and drop the cell's entry from the winner
+			// map so the sync won't untag it now that there's no cell.
+			Map<Integer, Integer> winnerMap = readComboWinnerMap(layoutable.name);
+			if (winnerMap.remove(index) != null) {
+				writeComboWinnerMap(layoutable.name, winnerMap);
+			}
+			tagManager.addTag(winner, layoutable.name, false);
+			if (core) {
+				// Pin it in the core layout where the cell was. It's now individually tagged, so the maintain
+				// scrub (which only removes UNtagged member floats) leaves it alone.
+				net.runelite.client.plugins.banktags.tabs.Layout coreLayout = coreLayoutFor(layoutable.name);
+				if (coreLayout != null) {
+					coreLayout.setItemAtPos(winner, index);
+					layoutManager.saveLayout(coreLayout);
+				}
+			}
+			else {
+				Layout layout = getBankOrderNonPreview(layoutable);
+				if (layout == null) {
+					layout = Layout.emptyLayout();
+				}
+				layout.putItem(winner, index);
+				saveLayoutNonPreview(layoutable, layout);
+			}
+		}
+		if (core) {
+			maintainComboCoreTab(layoutable.name);
+		}
+		bankSearch.layoutBank();
+	}
+
+	/** Recolors a combo smart cell's item name (hover/menu target) using the group's per-tag color. */
+	private void colorComboItemName(MenuEntryAdded event) {
+		if (!config.comboColorName()) {
+			return;
+		}
+		MenuEntry entry = event.getMenuEntry();
+		int itemId = entry.getItemId();
+		String group = getComboGroupForItem(getCurrentLayoutableThing(), itemId);
+		if (group == null) {
+			return;
+		}
+		String name = Text.removeTags(entry.getTarget());
+		if (!name.isEmpty()) {
+			entry.setTarget(ColorUtil.wrapWithColorTag(name, getComboColor(group)));
+		}
 	}
 
 	private boolean bankOpenButNotOnOptionsMenu() {
@@ -1196,6 +2182,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 			} catch (IllegalArgumentException ex) { /* do nothing lol */ }
 			removeThisMenuEntry = null;
 		}
+
+		// Combo: if the cursor is over a combo cell, replace its menu with the combo actions and stop.
+		if (customizeComboCellMenu(e)) return;
+
 		if (!bankOpenButNotOnOptionsMenu()) return;
 		Layout layout = getCurrentBankOrder();
 		if (layout == null) return;
@@ -1218,6 +2208,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 
 	@Subscribe
 	public void onPostMenuSort(PostMenuSort e) {
+		// Combo: relabel a core-tab ghost cell's closed-menu hover entry to "Edit <name>".
+		relabelComboGhostHover();
+
 		if (!bankOpenButNotOnOptionsMenu()) return;
 		Layout layout = getCurrentBankOrder();
 		if (layout == null) return;
@@ -1493,17 +2486,110 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 					.setParam0(index);
 		}
 
-		client.createMenuEntry(-1)
-				.setOption(DUPLICATE_ITEM)
-				.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
-				.setType(MenuAction.RUNELITE_OVERLAY)
-				.setParam0(index);
+		// An unowned combo ghost behaves like a bank placeholder (see addComboGhostMenuEntries); otherwise the
+		// normal "Duplicate-item" default applies.
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		String comboGhostGroup = layoutable != null && layoutable.isBankTab() && !comboResolver.isOwnedReal(itemIdAtIndex)
+				? getComboCellGroups(layoutable).get(index) : null;
+		if (comboGhostGroup != null) {
+			addComboGhostMenuEntries(index, comboGhostGroup);
+		} else {
+			client.createMenuEntry(-1)
+					.setOption(DUPLICATE_ITEM)
+					.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
+					.setType(MenuAction.RUNELITE_OVERLAY)
+					.setParam0(index);
+		}
 
 		if (!isRealItem) return; // layout placeholders already have "remove-layout" menu option which does the same thing as remove-duplicate-item.
 	}
 
 	private int removeThisMenuEntryStale = -1;
 	private MenuEntry removeThisMenuEntry = null;
+
+	/** Opens the Combo Tags side panel and shows the given combo's editor (the ghost's "Edit" action). */
+	private void openComboInPanel(String comboGroup) {
+		SwingUtilities.invokeLater(() -> {
+			clientToolbar.openPanel(comboNavButton);
+			comboPanel.openCombo(comboGroup);
+		});
+	}
+
+	/**
+	 * Builds an unowned combo ghost's menu like a bank placeholder: every entry is DEPRIORITIZED, so a
+	 * left-click opens the menu instead of acting (RuneLite/the client turns the left-click into a right-click
+	 * for low-priority defaults). The top entry (the hover text) is "Edit <name>", which opens this combo's
+	 * editor in the side panel — a non-destructive default, so even if the client doesn't force the menu open,
+	 * an accidental left-click is harmless. Below it: Set Placeholder / Remove Layout (handled in
+	 * onMenuOptionClicked). onMenuOpened skips hub ghosts so these aren't duplicated.
+	 */
+	private void addComboGhostMenuEntries(int index, String group) {
+		client.createMenuEntry(-1)
+				.setOption(REMOVE_COMBO)
+				.setTarget(ColorUtil.wrapWithColorTag(comboDisplayName(group), itemTooltipColor))
+				.setType(MenuAction.RUNELITE_OVERLAY)
+				.setParam0(index)
+				.setDeprioritized(true);
+		int winner = comboResolver.resolveWinner(group);
+		if (winner > 0) {
+			client.createMenuEntry(-1)
+					.setOption(REPLACE_COMBO_WITH_ITEM)
+					.setTarget(ColorUtil.wrapWithColorTag(itemName(winner), itemTooltipColor))
+					.setType(MenuAction.RUNELITE_OVERLAY)
+					.setParam0(index)
+					.setDeprioritized(true);
+		}
+		// Top entry (the hover text): "Edit <name>". Deprioritized so a left-click opens the menu;
+		// selecting it opens this combo's editor in the side panel.
+		client.createMenuEntry(-1)
+				.setOption(OPEN_COMBO)
+				.setTarget(ColorUtil.wrapWithColorTag(comboDisplayName(group), itemTooltipColor))
+				.setType(MenuAction.RUNELITE_OVERLAY)
+				.setParam0(index)
+				.setDeprioritized(true)
+				.onClick(me -> openComboInPanel(group));
+	}
+
+	/**
+	 * CORE tabs only: an unowned combo ghost is RuneLite's own placeholder, whose hover defaults to
+	 * "Duplicate-item". While the menu is closed (i.e. for the hover), relabel that entry to "Edit <name>" in
+	 * the group color. It stays deprioritized, so a left-click still opens the menu; once open, onMenuOpened
+	 * owns the entries (it strips this and re-adds the full set). Called from onPostMenuSort.
+	 */
+	private void relabelComboGhostHover() {
+		if (client.isMenuOpen()) {
+			return;
+		}
+		Widget bankContainer = client.getWidget(ComponentID.BANK_CONTAINER);
+		if (bankContainer == null || bankContainer.isHidden()) {
+			return;
+		}
+		LayoutableThing layoutable = getCurrentLayoutableThing();
+		if (layoutable == null || !layoutable.isBankTab() || !isVanillaLayoutEnabled(layoutable)) {
+			return; // core tabs only; hub ghosts build their own placeholder menu
+		}
+		int index = getMouseIndex();
+		if (index == -1) {
+			return;
+		}
+		String group = getComboCellGroups(layoutable).get(index);
+		if (group == null) {
+			return;
+		}
+		int winner = comboResolver.resolveWinner(group);
+		if (winner <= 0 || comboResolver.isOwnedReal(winner)) {
+			return; // only the unowned ghost
+		}
+		for (MenuEntry e : client.getMenuEntries()) {
+			String opt = e.getOption();
+			if (opt != null && opt.startsWith("Duplicate-item")) {
+				e.setOption(OPEN_COMBO)
+					.setTarget(ColorUtil.wrapWithColorTag(comboDisplayName(group), itemTooltipColor))
+					.onClick(me -> openComboInPanel(group));
+				break;
+			}
+		}
+	}
 
 	private void addFakeItemMenuEntries(MenuEntryAdded menuEntryAdded) {
 		if (!menuEntryAdded.getOption().equalsIgnoreCase("cancel")) return;
@@ -1518,7 +2604,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		if (index == -1) return;
 		int itemIdAtIndex = layout.getItemAtIndex(index);
 
-		if (itemIdAtIndex != -1 && !indexToWidget.containsKey(index)) {
+		// Combo ghost cells are plain placeholders — no "Remove-layout" entry (so they have no hover text).
+		if (itemIdAtIndex != -1 && !indexToWidget.containsKey(index)
+				&& getComboCellGroups(currentLayoutableThing).get(index) == null) {
 			client.getMenu().createMenuEntry(-1)
 					.setOption(REMOVE_FROM_LAYOUT_MENU_OPTION)
 					.setType(MenuAction.RUNELITE)
@@ -1628,10 +2716,191 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 			duplicateItem(event.getParam0());
 		} else if (REMOVE_DUPLICATE_ITEM.equals(menuOption)) {
 			removeFromLayout(event.getParam0());
+		} else if (REMOVE_COMBO.equals(menuOption)) {
+			removeComboCell(event.getParam0());
+		} else if (REPLACE_COMBO_WITH_ITEM.equals(menuOption)) {
+			replaceComboCellWithItem(event.getParam0());
 		} else {
 			consume = false;
 		}
 		if (consume) event.consume();
+	}
+
+	/**
+	 * Replaces a combo group's loose members in the currently-open tag tab with a single combo smart cell:
+	 * untags every member of the group from the host tab and places the cell at the top-left-most position
+	 * those members occupied (or the first empty slot if none were present). Called from the side panel.
+	 */
+	public void replaceComboInOpenTab(String comboGroup) {
+		clientThread.invokeLater(() -> {
+			String hostTag = tabInterface.getActiveTag();
+			if (hostTag == null || hostTag.isEmpty() || hostTag.equals("tagtabs") || hostTag.startsWith("_invsetup_")) {
+				chatMessage("Open a bank tag tab first, then replace the combo into it.");
+				return;
+			}
+			LayoutableThing layoutable = LayoutableThing.bankTag(hostTag);
+			boolean core = isVanillaLayoutEnabled(layoutable);
+			boolean wasHost = comboBankTags.containsKey(hostTag);
+			Layout layout = core ? null : getBankOrderNonPreview(layoutable);
+			if (!core && layout == null) {
+				layout = Layout.emptyLayout();
+			}
+			ComboReplaceResult result = replaceComboIntoTab(hostTag, layout, comboGroup);
+			if (result == ComboReplaceResult.ABSENT) {
+				chatMessage("Combo \"" + comboGroup + "\" isn't in tab \"" + hostTag + "\" — nothing to replace.");
+				return; // no-op: don't relayout or (for a new host) recapture
+			}
+			if (core) {
+				if (!wasHost) {
+					recaptureActiveComboCoreTab(); // only needed to capture a brand-new ComboBankTag
+				}
+			}
+			else {
+				saveLayoutNonPreview(layoutable, layout);
+			}
+			bankSearch.layoutBank(); // triggers a build → the render shows the live winner
+			chatMessage((result == ComboReplaceResult.ADDED ? "Replaced" : "Cleaned up") + " combo \"" + comboGroup + "\" in tab \"" + hostTag + "\".");
+		});
+	}
+
+	/** Replaces EVERY combo filed under the given category into the open tab, in one client-thread pass. */
+	public void replaceCategoryInOpenTab(String category) {
+		clientThread.invokeLater(() -> {
+			String hostTag = tabInterface.getActiveTag();
+			if (hostTag == null || hostTag.isEmpty() || hostTag.equals("tagtabs") || hostTag.startsWith("_invsetup_")) {
+				chatMessage("Open a bank tag tab first, then replace the group into it.");
+				return;
+			}
+			List<String> groups = new ArrayList<>();
+			for (com.banktaglayouts.combo.ComboGroup g : com.banktaglayouts.combo.ComboStore.all(configManager, gson)) {
+				if (category.equals(g.category)) {
+					groups.add(g.name);
+				}
+			}
+			if (groups.isEmpty()) {
+				chatMessage("No combos in group \"" + category + "\".");
+				return;
+			}
+			LayoutableThing layoutable = LayoutableThing.bankTag(hostTag);
+			boolean core = isVanillaLayoutEnabled(layoutable);
+			boolean wasHost = comboBankTags.containsKey(hostTag);
+			Layout layout = core ? null : getBankOrderNonPreview(layoutable);
+			if (!core && layout == null) {
+				layout = Layout.emptyLayout();
+			}
+			int replaced = 0;
+			for (String comboGroup : groups) {
+				if (replaceComboIntoTab(hostTag, layout, comboGroup) != ComboReplaceResult.ABSENT) {
+					replaced++; // shares the one layout; one relayout below
+				}
+			}
+			if (replaced == 0) {
+				chatMessage("No combos from group \"" + category + "\" are in tab \"" + hostTag + "\" — nothing to replace.");
+				return;
+			}
+			if (core) {
+				if (!wasHost) {
+					recaptureActiveComboCoreTab(); // only needed to capture a brand-new ComboBankTag
+				}
+			}
+			else {
+				saveLayoutNonPreview(layoutable, layout);
+			}
+			bankSearch.layoutBank();
+			chatMessage("Replaced group \"" + category + "\" (" + replaced + " of " + groups.size() + " combos) in tab \"" + hostTag + "\".");
+		});
+	}
+
+	/** Outcome of {@link #replaceComboIntoTab}: a cell was newly placed, an existing one refreshed, or the combo wasn't in the tab. */
+	private enum ComboReplaceResult { ADDED, REFRESHED, ABSENT }
+
+	/**
+	 * Core of "replace combo in tab": consolidates the group's loose member items already in the tab into a
+	 * single smart cell — untags them and (for a new cell) places it at the top-left-most member slot. It does
+	 * NOT add a combo that isn't present: if no member is in the tab and there's no existing cell, it's a no-op.
+	 * Mutates the passed {@code layout} and the persisted comboslots; does NOT save the layout or relayout (the
+	 * caller does that once). Client thread.
+	 */
+	private ComboReplaceResult replaceComboIntoTab(String hostTag, Layout hubLayout, String comboGroup) {
+		boolean core = isVanillaLayoutEnabled(LayoutableThing.bankTag(hostTag));
+		Set<Integer> memberBases = new HashSet<>(comboResolver.orderedMemberBases(comboGroup));
+		List<com.banktaglayouts.combo.ComboSlots.Slot> slots = com.banktaglayouts.combo.ComboSlots.read(configManager, hostTag);
+		com.banktaglayouts.combo.ComboSlots.Slot existing = slots.stream()
+			.filter(s -> s.getGroup().equals(comboGroup)).findFirst().orElse(null);
+
+		// Sweep the group's member items out of whichever layout the tab uses, recording the top-left slot.
+		int topLeft = Integer.MAX_VALUE;
+		if (core) {
+			// Read the LIVE layout for the top-left member slot; the actual removal of the (about-to-be-untagged)
+			// members is left to maintainComboCoreTab's scrub so everything happens on the one live object — a
+			// separate loadLayout/saveLayout copy here would diverge from what RuneLite is rendering.
+			net.runelite.client.plugins.banktags.tabs.Layout coreLayout = coreLayoutFor(hostTag);
+			if (coreLayout != null) {
+				int[] l = coreLayout.getLayout();
+				for (int pos = 0; pos < l.length; pos++) {
+					if (l[pos] > 0 && memberBases.contains(comboBaseOf(l[pos])) && pos < topLeft) {
+						topLeft = pos;
+					}
+				}
+			}
+		}
+		else {
+			List<Integer> indicesToClear = new ArrayList<>();
+			for (Map.Entry<Integer, Integer> e : new ArrayList<>(hubLayout.allPairs())) {
+				if (memberBases.contains(comboBaseOf(e.getValue()))) {
+					indicesToClear.add(e.getKey());
+					if (e.getKey() < topLeft) {
+						topLeft = e.getKey();
+					}
+				}
+			}
+			for (int idx : indicesToClear) {
+				hubLayout.clearIndex(idx);
+			}
+		}
+
+		// Untag every member item from the host tab (both the non-variation and variation tag forms), noting
+		// whether the combo was present in the tab at all (a member sitting in the layout or tagged).
+		boolean memberPresent = topLeft != Integer.MAX_VALUE;
+		// getItemsForTag matches case-sensitively against lowercased tags and returns NEGATIVE ids for the
+		// variation tag form — so standardize the tag and abs the id before mapping to a base (mirrors
+		// untagComboMembersOnce). Without this, mixed-case tabs find no members and variation-tagged members
+		// feed a negative id into getItemComposition.
+		for (Integer item : tagManager.getItemsForTag(Text.standardize(hostTag))) {
+			if (memberBases.contains(comboBaseOf(Math.abs(item)))) {
+				copyPaste.removeTag(item, hostTag);
+				memberPresent = true;
+			}
+		}
+
+		int cellIndex;
+		if (existing == null) {
+			// "Replace" only consolidates a combo that's already in the tab — never adds one that isn't.
+			if (!memberPresent) {
+				return ComboReplaceResult.ABSENT;
+			}
+			if (topLeft == Integer.MAX_VALUE) {
+				topLeft = core ? firstEmptyCorePos(coreLayoutFor(hostTag), slots)
+					: firstEmptyIndexAvoidingCombos(hubLayout, slots);
+			}
+			slots.add(new com.banktaglayouts.combo.ComboSlots.Slot(topLeft, comboGroup));
+			com.banktaglayouts.combo.ComboSlots.write(configManager, hostTag, slots);
+			invalidateComboCellGroupsCache();
+			cellIndex = topLeft;
+		}
+		else {
+			cellIndex = existing.getIndex();
+		}
+
+		if (core) {
+			ensureComboBankTagRegistered(hostTag); // the caller recaptures iff this tab was a new host
+			maintainComboCoreTab(hostTag);         // membership + pin the cell's winner (mutates the live layout)
+		}
+		else {
+			// Tag + position the cell's winner NOW (instant) — see placeComboWinnerNow.
+			placeComboWinnerNow(hostTag, cellIndex, comboGroup);
+		}
+		return existing == null ? ComboReplaceResult.ADDED : ComboReplaceResult.REFRESHED;
 	}
 
 	private void removeFromLayout(int index)
@@ -1660,7 +2929,9 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	private void cleanItemsNotInBankTag(Layout layout, LayoutableThing layoutable) {
 		Predicate<Integer> containsId;
 		if (layoutable.isBankTab()) {
-			containsId = id -> copyPaste.findTag(id, layoutable.name);
+			// Exact match: startsWith wrongly treats e.g. an item tagged "newtoa2" as part of tab "newtoa",
+			// which kept rotated-out combo items in the layout as ghost artifacts.
+			containsId = id -> copyPaste.findTagExact(id, layoutable.name);
 		}
 		else
 		{
@@ -2070,6 +3341,13 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	private void customBankTagOrderInsert(LayoutableThing layoutable, int draggedItemIndex, int draggedOnItemIndex) {
 		Layout layout = getBankOrder(layoutable);
 		if (layout == null) return;
+		if (draggedItemIndex == draggedOnItemIndex) return;
+
+		// Combo cells aren't persisted in the layout, so dragging them (or dragging an item onto one) must
+		// move the combo SLOT index instead of touching the layout. Handles both ends being a combo cell.
+		if (layoutable.isBankTab() && moveComboCellOnDrag(layoutable, layout, draggedItemIndex, draggedOnItemIndex)) {
+			return;
+		}
 
 		// Currently I'm just spilling the variant items out in bank order, so I don't care exactly what item id was there - although if I ever decide to change this, this section will become much more complicated, since if I drag a (2) charge onto a regular item, but there was supposed to be a (3) charge there then I have to move the (2) but also deal with where the (2)'s saved position is... At least that's how it'll go if I decide to handle jewellery that way.
 
@@ -2080,6 +3358,68 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		saveLayout(layoutable, layout);
 
 		applyCustomBankTagItemPositions();
+	}
+
+	/**
+	 * Handles a drag where one (or both) end is a combo cell, by moving the combo SLOT index (and swapping
+	 * whatever was at the destination). Returns true if it handled the drag (combo involved), false otherwise.
+	 */
+	private boolean moveComboCellOnDrag(LayoutableThing layoutable, Layout layout, int draggedItemIndex, int draggedOnItemIndex) {
+		List<com.banktaglayouts.combo.ComboSlots.Slot> slots =
+			com.banktaglayouts.combo.ComboSlots.read(configManager, layoutable.name);
+		com.banktaglayouts.combo.ComboSlots.Slot draggedCell = slots.stream()
+			.filter(s -> s.getIndex() == draggedItemIndex).findFirst().orElse(null);
+		com.banktaglayouts.combo.ComboSlots.Slot targetCell = slots.stream()
+			.filter(s -> s.getIndex() == draggedOnItemIndex).findFirst().orElse(null);
+		if (draggedCell == null && targetCell == null) {
+			return false; // no combo cell involved — let the normal layout move run
+		}
+
+		boolean layoutChanged = false;
+		if (draggedCell != null && targetCell != null) {
+			// Swap two combo cells.
+			draggedCell.setIndex(draggedOnItemIndex);
+			targetCell.setIndex(draggedItemIndex);
+		} else if (draggedCell != null) {
+			// Combo dragged onto an empty slot or a real item — swap with the real item if present.
+			int targetItem = layout.getItemAtIndex(draggedOnItemIndex);
+			if (targetItem > 0) {
+				layout.clearIndex(draggedOnItemIndex);
+				layout.putItem(targetItem, draggedItemIndex);
+				layoutChanged = true;
+			}
+			draggedCell.setIndex(draggedOnItemIndex);
+		} else {
+			// A real item dragged onto a combo cell — swap their positions.
+			int draggedItem = layout.getItemAtIndex(draggedItemIndex);
+			if (draggedItem > 0) {
+				layout.clearIndex(draggedItemIndex);
+				layout.putItem(draggedItem, draggedOnItemIndex);
+				layoutChanged = true;
+			}
+			targetCell.setIndex(draggedItemIndex);
+		}
+
+		// The winner map is keyed by cell index, so move its entries to follow the swapped indices — otherwise
+		// each cell would render the OTHER cell's winner after the swap.
+		Map<Integer, Integer> winnerMap = readComboWinnerMap(layoutable.name);
+		Integer draggedWinner = winnerMap.remove(draggedItemIndex);
+		Integer targetWinner = winnerMap.remove(draggedOnItemIndex);
+		if (draggedWinner != null) {
+			winnerMap.put(draggedOnItemIndex, draggedWinner);
+		}
+		if (targetWinner != null) {
+			winnerMap.put(draggedItemIndex, targetWinner);
+		}
+		writeComboWinnerMap(layoutable.name, winnerMap);
+
+		com.banktaglayouts.combo.ComboSlots.write(configManager, layoutable.name, slots);
+		invalidateComboCellGroupsCache();
+		if (layoutChanged) {
+			saveLayout(layoutable, layout);
+		}
+		applyCustomBankTagItemPositions();
+		return true;
 	}
 
 	private Integer getIdForIndexInRealBank(int index) {
