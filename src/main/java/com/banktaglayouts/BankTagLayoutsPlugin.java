@@ -174,6 +174,90 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	private Widget showLayoutPreviewButton = null;
 	private Widget applyLayoutPreviewButton = null;
 	private Widget cancelLayoutPreviewButton = null;
+	private Widget duplicateModeButton = null;
+	private boolean duplicateMode = false;
+	private Widget removeDuplicateModeButton = null;
+	private boolean removeDuplicateMode = false;
+	private boolean duplicateKeybindActive = false;
+	private boolean removeDuplicateKeybindActive = false;
+
+	public boolean isDuplicateMode()
+	{
+		return duplicateMode;
+	}
+
+	public Widget getDuplicateModeButton()
+	{
+		return duplicateModeButton;
+	}
+
+	public boolean isRemoveDuplicateMode()
+	{
+		return removeDuplicateMode;
+	}
+
+	public Widget getRemoveDuplicateModeButton()
+	{
+		return removeDuplicateModeButton;
+	}
+
+	@VisibleForTesting
+	void setDuplicateKeybindActive(boolean active)
+	{
+		this.duplicateKeybindActive = active;
+	}
+
+	@VisibleForTesting
+	void setRemoveDuplicateKeybindActive(boolean active)
+	{
+		this.removeDuplicateKeybindActive = active;
+	}
+
+	@VisibleForTesting
+	void toggleDuplicateMode()
+	{
+		duplicateMode = !duplicateMode;
+		if (duplicateMode)
+		{
+			removeDuplicateMode = false;
+			updateRemoveDuplicateButtonState();
+		}
+		updateDuplicateButtonState();
+	}
+
+	@VisibleForTesting
+	void toggleRemoveDuplicateMode()
+	{
+		removeDuplicateMode = !removeDuplicateMode;
+		if (removeDuplicateMode)
+		{
+			duplicateMode = false;
+			updateDuplicateButtonState();
+		}
+		updateRemoveDuplicateButtonState();
+	}
+
+	private void updateDuplicateButtonState()
+	{
+		if (duplicateModeButton != null)
+		{
+			duplicateModeButton.setSpriteId(duplicateMode ? Sprites.DUPLICATE_MODE_ACTIVE.getSpriteId() : Sprites.DUPLICATE_MODE.getSpriteId());
+			duplicateModeButton.setAction(0, duplicateMode ? "Disable duplicate mode" : "Enable duplicate mode");
+			duplicateModeButton.setAction(1, removeDuplicateMode ? "Disable remove duplicate mode" : "Enable remove duplicate mode");
+			duplicateModeButton.revalidate();
+		}
+	}
+
+	private void updateRemoveDuplicateButtonState()
+	{
+		if (removeDuplicateModeButton != null)
+		{
+			removeDuplicateModeButton.setSpriteId(removeDuplicateMode ? Sprites.REMOVE_DUPLICATE_MODE_ACTIVE.getSpriteId() : Sprites.REMOVE_DUPLICATE_MODE.getSpriteId());
+			removeDuplicateModeButton.setAction(0, removeDuplicateMode ? "Disable remove duplicate mode" : "Enable remove duplicate mode");
+			removeDuplicateModeButton.setAction(1, duplicateMode ? "Disable duplicate mode" : "Enable duplicate mode");
+			removeDuplicateModeButton.revalidate();
+		}
+	}
 
 	private LayoutableThing lastLayoutable = null;
 	private int lastHeight = Integer.MAX_VALUE;
@@ -241,6 +325,74 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 			cancelLayoutPreviewButton.setAction(0, "Cancel preview");
 		}
 
+		boolean foundDuplicateButton = false;
+		if (duplicateModeButton != null) {
+			for (Widget dynamicChild : parent.getDynamicChildren())
+			{
+				if (dynamicChild == duplicateModeButton) {
+					foundDuplicateButton = true;
+					break;
+				}
+			}
+		}
+		if (!foundDuplicateButton || duplicateModeButton == null) {
+			duplicateModeButton = parent.createChild(-1, WidgetType.GRAPHIC);
+
+			duplicateModeButton.setOriginalHeight(18);
+			duplicateModeButton.setOriginalWidth(18);
+			duplicateModeButton.setYPositionMode(WidgetPositionMode.ABSOLUTE_BOTTOM);
+			duplicateModeButton.setOriginalX(410);
+			duplicateModeButton.setOriginalY(45);
+			duplicateModeButton.setSpriteId(duplicateMode ? Sprites.DUPLICATE_MODE_ACTIVE.getSpriteId() : Sprites.DUPLICATE_MODE.getSpriteId());
+			duplicateModeButton.setNoClickThrough(true);
+
+			duplicateModeButton.setOnOpListener((JavaScriptCallback) (e) -> {
+				if (e.getOp() == 1) {
+					toggleDuplicateMode();
+				} else if (e.getOp() == 2) {
+					toggleRemoveDuplicateMode();
+				}
+			});
+			duplicateModeButton.setHasListener(true);
+			duplicateModeButton.revalidate();
+			duplicateModeButton.setAction(0, duplicateMode ? "Disable duplicate mode" : "Enable duplicate mode");
+			duplicateModeButton.setAction(1, removeDuplicateMode ? "Disable remove duplicate mode" : "Enable remove duplicate mode");
+		}
+
+		boolean foundRemoveDuplicateButton = false;
+		if (removeDuplicateModeButton != null) {
+			for (Widget dynamicChild : parent.getDynamicChildren())
+			{
+				if (dynamicChild == removeDuplicateModeButton) {
+					foundRemoveDuplicateButton = true;
+					break;
+				}
+			}
+		}
+		if (!foundRemoveDuplicateButton || removeDuplicateModeButton == null) {
+			removeDuplicateModeButton = parent.createChild(-1, WidgetType.GRAPHIC);
+
+			removeDuplicateModeButton.setOriginalHeight(18);
+			removeDuplicateModeButton.setOriginalWidth(18);
+			removeDuplicateModeButton.setYPositionMode(WidgetPositionMode.ABSOLUTE_BOTTOM);
+			removeDuplicateModeButton.setOriginalX(386);
+			removeDuplicateModeButton.setOriginalY(45);
+			removeDuplicateModeButton.setSpriteId(removeDuplicateMode ? Sprites.REMOVE_DUPLICATE_MODE_ACTIVE.getSpriteId() : Sprites.REMOVE_DUPLICATE_MODE.getSpriteId());
+			removeDuplicateModeButton.setNoClickThrough(true);
+
+			removeDuplicateModeButton.setOnOpListener((JavaScriptCallback) (e) -> {
+				if (e.getOp() == 1) {
+					toggleRemoveDuplicateMode();
+				} else if (e.getOp() == 2) {
+					toggleDuplicateMode();
+				}
+			});
+			removeDuplicateModeButton.setHasListener(true);
+			removeDuplicateModeButton.revalidate();
+			removeDuplicateModeButton.setAction(0, removeDuplicateMode ? "Disable remove duplicate mode" : "Enable remove duplicate mode");
+			removeDuplicateModeButton.setAction(1, duplicateMode ? "Disable duplicate mode" : "Enable duplicate mode");
+		}
+
 		hideLayoutPreviewButtons(!isShowingPreview());
 		boolean show =
 			getCurrentLayoutableThing() != null &&
@@ -248,6 +400,20 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 			(config.whichPlugin() != CORE && !isVanillaLayoutEnabled(getCurrentLayoutableThing()) || hasLayoutEnabled(getCurrentLayoutableThing())) &&
 			!isShowingPreview();
 		showLayoutPreviewButton.setHidden(!show);
+
+		boolean showDuplicate =
+			getCurrentLayoutableThing() != null &&
+			config.duplicateModeButton() &&
+			(config.whichPlugin() != CORE && !isVanillaLayoutEnabled(getCurrentLayoutableThing()) || hasLayoutEnabled(getCurrentLayoutableThing())) &&
+			!isShowingPreview();
+		duplicateModeButton.setHidden(!showDuplicate);
+
+		boolean showRemoveDuplicate =
+			getCurrentLayoutableThing() != null &&
+			config.removeDuplicateModeButton() &&
+			(config.whichPlugin() != CORE && !isVanillaLayoutEnabled(getCurrentLayoutableThing()) || hasLayoutEnabled(getCurrentLayoutableThing())) &&
+			!isShowingPreview();
+		removeDuplicateModeButton.setHidden(!showRemoveDuplicate);
 	}
 
 	@Subscribe
@@ -255,6 +421,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	{
 		if (event.getGroupId() == InterfaceID.BANK) {
 			showLayoutPreviewButton = null; // when the bank widget is unloaded or loaded (not sure which) the button is removed from it somehow. So, set it to null so that it will be regenerated.
+			duplicateModeButton = null;
+			removeDuplicateModeButton = null;
 			registerListeners();
 		}
 	}
@@ -266,6 +434,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		if (widgetClosed.getGroupId() == InterfaceID.BANK) {
 			checkInventorySetup = client.getGameCycle();
 			unregisterListeners();
+			duplicateMode = false;
+			removeDuplicateMode = false;
 		}
 	}
 
@@ -286,7 +456,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		mouseManager.unregisterMouseListener(this);
 		keyManager.unregisterKeyListener(antiDrag);
 		keyManager.unregisterKeyListener(this);
-		addItemKeybind = addRowKeybind = removeRowKeybind = false;
+		addItemKeybind = addRowKeybind = removeRowKeybind = duplicateKeybindActive = removeDuplicateKeybindActive = false;
 		draggedItemIndex = -1;
 		antiDrag.reset();
 		registered = false;
@@ -370,6 +540,10 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 				indexToWidget.clear();
 				cancelLayoutPreview();
 				if (showLayoutPreviewButton != null) showLayoutPreviewButton.setHidden(true);
+				if (duplicateModeButton != null) duplicateModeButton.setHidden(true);
+				if (removeDuplicateModeButton != null) removeDuplicateModeButton.setHidden(true);
+				duplicateMode = false;
+				removeDuplicateMode = false;
 
 				bankSearch.layoutBank();
 			}
@@ -382,7 +556,13 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		if (CONFIG_GROUP.equals(event.getGroup())) {
 			if ("layoutEnabledByDefault".equals(event.getKey())) {
 				clientThread.invokeLater(() -> applyCustomBankTagItemPositions());
-			} else if ("showAutoLayoutButton".equals(event.getKey())) {
+			} else if ("showAutoLayoutButton".equals(event.getKey()) || "duplicateModeButton".equals(event.getKey()) || "removeDuplicateModeButton".equals(event.getKey())) {
+				if (!config.duplicateModeButton()) {
+					duplicateMode = false;
+				}
+				if (!config.removeDuplicateModeButton()) {
+					removeDuplicateMode = false;
+				}
 				clientThread.invokeLater(this::updateButton);
 			} else if ("whichPlugin".equals(event.getKey()) || "convertAll".equals(event.getKey())) {
 				if (SwingUtilities.isEventDispatchThread() && config.convertAll() && config.whichPlugin() != BOTH) {
@@ -576,6 +756,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		if (applyLayoutPreviewButton != null) applyLayoutPreviewButton.setHidden(hide);
 		if (cancelLayoutPreviewButton != null) cancelLayoutPreviewButton.setHidden(hide);
 		if (showLayoutPreviewButton != null && config.showAutoLayoutButton() && getCurrentLayoutableThing() != null) showLayoutPreviewButton.setHidden(!hide);
+		if (duplicateModeButton != null && config.duplicateModeButton() && getCurrentLayoutableThing() != null) duplicateModeButton.setHidden(!hide);
+		if (removeDuplicateModeButton != null && config.removeDuplicateModeButton() && getCurrentLayoutableThing() != null) removeDuplicateModeButton.setHidden(!hide);
 	}
 
 	private void cancelLayoutPreview() {
@@ -1134,12 +1316,16 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		if (config.addItemKeybind().matches(e)) addItemKeybind = true;
 		if (config.addRowBelowKeybind().matches(e)) addRowKeybind = true;
 		if (config.removeRowKeybind().matches(e)) removeRowKeybind = true;
+		if (config.duplicateKeybind().matches(e)) duplicateKeybindActive = true;
+		if (config.removeDuplicateKeybind().matches(e)) removeDuplicateKeybindActive = true;
 	}
 
 	@Override public void keyReleased(KeyEvent e) {
 		if (config.addItemKeybind().matches(e)) addItemKeybind = false;
 		if (config.addRowBelowKeybind().matches(e)) addRowKeybind = false;
 		if (config.removeRowKeybind().matches(e)) removeRowKeybind = false;
+		if (config.duplicateKeybind().matches(e)) duplicateKeybindActive = false;
+		if (config.removeDuplicateKeybind().matches(e)) removeDuplicateKeybindActive = false;
 	}
 
 	@Override public void keyTyped(KeyEvent e) { }
@@ -1216,7 +1402,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		}
 	}
 
-	@Subscribe
+	@Subscribe(priority = -1f)
 	public void onPostMenuSort(PostMenuSort e) {
 		if (!bankOpenButNotOnOptionsMenu()) return;
 		Layout layout = getCurrentBankOrder();
@@ -1238,6 +1424,87 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 		if (addRowKeybind) {
 			boolean added = insertRow(layout);
 			if (added) return;
+		}
+
+		boolean shouldRemoveDuplicate = removeDuplicateMode || removeDuplicateKeybindActive;
+
+		if (shouldRemoveDuplicate) {
+			MenuEntry[] entries = client.getMenu().getMenuEntries();
+			int removeIndex = -1;
+			for (int i = entries.length - 1; i >= 0; i--) {
+				String opt = entries[i].getOption();
+				if (REMOVE_DUPLICATE_ITEM.equals(opt) || REMOVE_FROM_LAYOUT_MENU_OPTION.equals(opt)) {
+					if (REMOVE_FROM_LAYOUT_MENU_OPTION.equals(opt)) {
+						int mouseIdx = getMouseIndex();
+						if (mouseIdx != -1) {
+							int itemId = layout.getItemAtIndex(mouseIdx);
+							if (itemId != -1 && layout.countItemsWithId(itemId) > 1) {
+								removeIndex = i;
+								break;
+							}
+						}
+					} else {
+						removeIndex = i;
+						break;
+					}
+				}
+			}
+
+			if (removeIndex != -1) {
+				MenuEntry removeEntry = entries[removeIndex];
+				removeEntry.setType(MenuAction.RUNELITE);
+				removeEntry.setForceLeftClick(true);
+				if (removeIndex != entries.length - 1) {
+					for (int i = removeIndex; i < entries.length - 1; i++) {
+						entries[i] = entries[i + 1];
+					}
+					entries[entries.length - 1] = removeEntry;
+					client.getMenu().setMenuEntries(entries);
+				}
+				return;
+			}
+		}
+
+		boolean shouldDuplicate = duplicateMode || duplicateKeybindActive;
+		if (shouldDuplicate) {
+			MenuEntry[] entries = client.getMenu().getMenuEntries();
+			int duplicateIndex = -1;
+			for (int i = entries.length - 1; i >= 0; i--) {
+				if (DUPLICATE_ITEM.equals(entries[i].getOption())) {
+					duplicateIndex = i;
+					break;
+				}
+			}
+
+			if (duplicateIndex != -1) {
+				MenuEntry duplicateEntry = entries[duplicateIndex];
+				duplicateEntry.setType(MenuAction.RUNELITE);
+				duplicateEntry.setForceLeftClick(true);
+				if (duplicateIndex != entries.length - 1) {
+					for (int i = duplicateIndex; i < entries.length - 1; i++) {
+						entries[i] = entries[i + 1];
+					}
+					entries[entries.length - 1] = duplicateEntry;
+					client.getMenu().setMenuEntries(entries);
+				}
+			} else {
+				int index = getMouseIndex();
+				if (index != -1) {
+					int itemIdAtIndex = layout.getItemAtIndex(index);
+					if (itemIdAtIndex != -1) {
+						boolean isLayoutPlaceholder = fakeItems.stream()
+							.anyMatch(fakeItem -> fakeItem.getIndex() == index && fakeItem.isLayoutPlaceholder());
+						if (!isLayoutPlaceholder) {
+							client.getMenu().createMenuEntry(-1)
+								.setOption(DUPLICATE_ITEM)
+								.setTarget(ColorUtil.wrapWithColorTag(itemName(itemIdAtIndex), itemTooltipColor))
+								.setType(MenuAction.RUNELITE)
+								.setParam0(index)
+								.setForceLeftClick(true);
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -1467,7 +1734,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 
 	private void addDuplicateItemMenuEntries(MenuEntryAdded menuEntryAdded)
 	{
-		if (config.shiftModifierForExtraBankItemOptions() && !client.isKeyPressed(KeyCode.KC_SHIFT)) return;
+		if (config.shiftModifierForExtraBankItemOptions() && !client.isKeyPressed(KeyCode.KC_SHIFT) && !duplicateMode && !removeDuplicateMode && !duplicateKeybindActive && !removeDuplicateKeybindActive) return;
 
 		Layout layout = getCurrentBankOrder();
 		if (layout == null) return;

@@ -2,6 +2,12 @@ plugins {
 	id 'java'
 }
 
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(11)
+	}
+}
+
 repositories {
 	mavenLocal()
 	maven {
@@ -15,24 +21,24 @@ def runeLiteVersion = 'latest.release'
 dependencies {
 	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
 
-	compileOnly 'org.projectlombok:lombok:1.18.4'
-	annotationProcessor 'org.projectlombok:lombok:1.18.4'
+	compileOnly 'org.projectlombok:lombok:1.18.30'
+	annotationProcessor 'org.projectlombok:lombok:1.18.30'
 
 	testImplementation 'junit:junit:4.12'
 	testImplementation group: 'net.runelite', name:'client', version: runeLiteVersion
 
-	testImplementation group: 'org.mockito', name: 'mockito-core', version: '3.8.0'
-	testImplementation group: 'org.mockito', name: 'mockito-inline', version: '3.8.0'
+	testImplementation group: 'org.mockito', name: 'mockito-core', version: '4.11.0'
+	testImplementation group: 'org.mockito', name: 'mockito-inline', version: '4.11.0'
 	testImplementation group: 'com.google.inject.extensions', name: 'guice-testlib', version: '4.1.0'
 }
 
 group = 'com.banktaglayouts'
 // don't forget to check inventory setups!
 version = '1.5.2'
-sourceCompatibility = '1.8'
 
-tasks.withType(JavaCompile) {
+tasks.withType(JavaCompile).configureEach {
 	options.encoding = 'UTF-8'
+	options.release.set(11)
 }
 
 task createProperties(dependsOn: processResources) {
@@ -44,3 +50,17 @@ task createProperties(dependsOn: processResources) {
 classes {
 	dependsOn createProperties
 }
+
+tasks.register('run', JavaExec) {
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'com.banktaglayouts.ExamplePluginTest'
+
+	jvmArgs "-ea"
+
+	if (org.gradle.internal.os.OperatingSystem.current().isMacOsX()) {
+		jvmArgs "--add-exports", "java.desktop/com.apple.eawt=ALL-UNNAMED"
+	}
+
+	args "--developer-mode", "--debug"
+}
+
