@@ -19,6 +19,7 @@ import net.runelite.api.ItemComposition;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.Keybind;
 import net.runelite.client.config.RuneLiteConfig;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SpriteManager;
@@ -31,6 +32,15 @@ import net.runelite.client.plugins.banktags.tabs.TabInterface;
 import net.runelite.client.ui.overlay.OverlayManager;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import net.runelite.api.KeyCode;
+import net.runelite.api.Menu;
+import net.runelite.api.MenuAction;
+import net.runelite.api.MenuEntry;
+import net.runelite.api.events.PostMenuSort;
+import net.runelite.api.events.WidgetClosed;
+import net.runelite.api.widgets.ComponentID;
+import net.runelite.api.widgets.InterfaceID;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -99,10 +109,21 @@ public class BankLayoutTest
     @Bind
     private ChatboxPanelManager chatboxPanelManager;
 
-    // TODO uncomment when Adam's spritemanager fix is available.
     @Mock
     @Bind
     private RuneLiteConfig runeliteConfig;
+
+    @Mock
+    @Bind
+    private net.runelite.client.plugins.banktags.tabs.LayoutManager layoutManager;
+
+    @Mock
+    @Bind
+    private net.runelite.client.plugins.banktags.BankTagsService bankTagsService;
+
+    @Mock
+    @Bind
+    private net.runelite.client.eventbus.EventBus eventBus;
 
     @Inject
     private BankTagLayoutsPlugin plugin;
@@ -974,13 +995,171 @@ public class BankLayoutTest
 		String name = "&:&cerberus: ghost skip&";
 		String escapedName = BankTagLayoutsPlugin.LayoutableThing.inventorySetup(name).configKey().substring(BankTagLayoutsPlugin.INVENTORY_SETUPS_LAYOUT_CONFIG_KEY_PREFIX.length());
 		assertEquals("&amp;&#58;&amp;cerberus&#58; ghost skip&amp;", escapedName);
-//		String unescapedName = BankTagLayoutsPlugin.unescapeCharactersInConfigKey(escapedName);
-//		assertEquals(name, unescapedName);
-		/*
-	static String unescapeCharactersInConfigKey(String s)
-	{
-		return s.replaceAll("&#58;", ":").replaceAll("&amp;", "&");
 	}
-		 */
+
+	@Test
+	public void testToggleDuplicateMode() {
+		assertFalse(plugin.isDuplicateMode());
+		plugin.toggleDuplicateMode();
+		assertTrue(plugin.isDuplicateMode());
+		plugin.toggleDuplicateMode();
+		assertFalse(plugin.isDuplicateMode());
+	}
+
+	@Test
+	public void testDuplicateModeResetsOnBankClose() {
+		plugin.toggleDuplicateMode();
+		assertTrue(plugin.isDuplicateMode());
+
+		WidgetClosed event = new WidgetClosed(InterfaceID.BANK, 0, false);
+		plugin.onWidgetClosed(event);
+		assertFalse(plugin.isDuplicateMode());
+	}
+
+	@Test
+	public void testDuplicateKeybindPrioritizesMenuEntry() {
+		Menu menu = Mockito.mock(Menu.class);
+		Mockito.when(client.getMenu()).thenReturn(menu);
+
+		Widget bankContainer = Mockito.mock(Widget.class);
+		Mockito.when(bankContainer.isHidden()).thenReturn(false);
+		Mockito.when(client.getWidget(ComponentID.BANK_CONTAINER)).thenReturn(bankContainer);
+
+		currentLayout = generateLayout(new LayoutItem(MAGIC_LOGS, 0));
+		Mockito.doReturn(currentLayout).when(plugin).getCurrentBankOrder();
+
+		MenuEntry entry1 = Mockito.mock(MenuEntry.class);
+		Mockito.when(entry1.getOption()).thenReturn("Withdraw-1");
+		MenuEntry dupEntry = Mockito.mock(MenuEntry.class);
+		Mockito.when(dupEntry.getOption()).thenReturn(BankTagLayoutsPlugin.DUPLICATE_ITEM);
+		MenuEntry[] entries = new MenuEntry[]{dupEntry, entry1};
+
+		Mockito.when(menu.getMenuEntries()).thenReturn(entries);
+
+		plugin.setDuplicateKeybindActive(true);
+
+		plugin.onPostMenuSort(new PostMenuSort());
+
+		Mockito.verify(dupEntry).setType(MenuAction.RUNELITE);
+		Mockito.verify(dupEntry).setForceLeftClick(true);
+		Mockito.verify(menu).setMenuEntries(Mockito.any());
+	}
+
+	@Test
+	public void testDuplicateModePrioritizesMenuEntryWithoutShift() {
+		Menu menu = Mockito.mock(Menu.class);
+		Mockito.when(client.getMenu()).thenReturn(menu);
+
+		Widget bankContainer = Mockito.mock(Widget.class);
+		Mockito.when(bankContainer.isHidden()).thenReturn(false);
+		Mockito.when(client.getWidget(ComponentID.BANK_CONTAINER)).thenReturn(bankContainer);
+
+		currentLayout = generateLayout(new LayoutItem(MAGIC_LOGS, 0));
+		Mockito.doReturn(currentLayout).when(plugin).getCurrentBankOrder();
+
+		MenuEntry entry1 = Mockito.mock(MenuEntry.class);
+		Mockito.when(entry1.getOption()).thenReturn("Withdraw-1");
+		MenuEntry dupEntry = Mockito.mock(MenuEntry.class);
+		Mockito.when(dupEntry.getOption()).thenReturn(BankTagLayoutsPlugin.DUPLICATE_ITEM);
+		MenuEntry[] entries = new MenuEntry[]{dupEntry, entry1};
+
+		Mockito.when(menu.getMenuEntries()).thenReturn(entries);
+
+		plugin.toggleDuplicateMode();
+		assertTrue(plugin.isDuplicateMode());
+
+		plugin.onPostMenuSort(new PostMenuSort());
+
+		Mockito.verify(dupEntry).setType(MenuAction.RUNELITE);
+		Mockito.verify(dupEntry).setForceLeftClick(true);
+		Mockito.verify(menu).setMenuEntries(Mockito.any());
+	}
+
+	@Test
+	public void testToggleRemoveDuplicateMode() {
+		assertFalse(plugin.isRemoveDuplicateMode());
+		plugin.toggleRemoveDuplicateMode();
+		assertTrue(plugin.isRemoveDuplicateMode());
+		assertFalse(plugin.isDuplicateMode());
+
+		plugin.toggleDuplicateMode();
+		assertTrue(plugin.isDuplicateMode());
+		assertFalse(plugin.isRemoveDuplicateMode());
+
+		plugin.toggleRemoveDuplicateMode();
+		assertTrue(plugin.isRemoveDuplicateMode());
+		assertFalse(plugin.isDuplicateMode());
+
+		plugin.toggleRemoveDuplicateMode();
+		assertFalse(plugin.isRemoveDuplicateMode());
+	}
+
+	@Test
+	public void testRemoveDuplicateModeResetsOnBankClose() {
+		plugin.toggleRemoveDuplicateMode();
+		assertTrue(plugin.isRemoveDuplicateMode());
+
+		WidgetClosed event = new WidgetClosed(InterfaceID.BANK, 0, false);
+		plugin.onWidgetClosed(event);
+		assertFalse(plugin.isRemoveDuplicateMode());
+	}
+
+	@Test
+	public void testRemoveDuplicateKeybindPrioritizesMenuEntry() {
+		Menu menu = Mockito.mock(Menu.class);
+		Mockito.when(client.getMenu()).thenReturn(menu);
+
+		Widget bankContainer = Mockito.mock(Widget.class);
+		Mockito.when(bankContainer.isHidden()).thenReturn(false);
+		Mockito.when(client.getWidget(ComponentID.BANK_CONTAINER)).thenReturn(bankContainer);
+
+		currentLayout = generateLayout(new LayoutItem(MAGIC_LOGS, 0), new LayoutItem(MAGIC_LOGS, 1));
+		Mockito.doReturn(currentLayout).when(plugin).getCurrentBankOrder();
+
+		MenuEntry entry1 = Mockito.mock(MenuEntry.class);
+		Mockito.when(entry1.getOption()).thenReturn("Withdraw-1");
+		MenuEntry removeDupEntry = Mockito.mock(MenuEntry.class);
+		Mockito.when(removeDupEntry.getOption()).thenReturn(BankTagLayoutsPlugin.REMOVE_DUPLICATE_ITEM);
+		MenuEntry[] entries = new MenuEntry[]{removeDupEntry, entry1};
+
+		Mockito.when(menu.getMenuEntries()).thenReturn(entries);
+
+		plugin.setRemoveDuplicateKeybindActive(true);
+
+		plugin.onPostMenuSort(new PostMenuSort());
+
+		Mockito.verify(removeDupEntry).setType(MenuAction.RUNELITE);
+		Mockito.verify(removeDupEntry).setForceLeftClick(true);
+		Mockito.verify(menu).setMenuEntries(Mockito.any());
+	}
+
+	@Test
+	public void testRemoveDuplicateModePrioritizesMenuEntryWithoutKey() {
+		Menu menu = Mockito.mock(Menu.class);
+		Mockito.when(client.getMenu()).thenReturn(menu);
+
+		Widget bankContainer = Mockito.mock(Widget.class);
+		Mockito.when(bankContainer.isHidden()).thenReturn(false);
+		Mockito.when(client.getWidget(ComponentID.BANK_CONTAINER)).thenReturn(bankContainer);
+
+		currentLayout = generateLayout(new LayoutItem(MAGIC_LOGS, 0), new LayoutItem(MAGIC_LOGS, 1));
+		Mockito.doReturn(currentLayout).when(plugin).getCurrentBankOrder();
+
+		MenuEntry entry1 = Mockito.mock(MenuEntry.class);
+		Mockito.when(entry1.getOption()).thenReturn("Withdraw-1");
+		MenuEntry removeDupEntry = Mockito.mock(MenuEntry.class);
+		Mockito.when(removeDupEntry.getOption()).thenReturn(BankTagLayoutsPlugin.REMOVE_DUPLICATE_ITEM);
+		MenuEntry[] entries = new MenuEntry[]{removeDupEntry, entry1};
+
+		Mockito.when(menu.getMenuEntries()).thenReturn(entries);
+
+		plugin.toggleRemoveDuplicateMode();
+		assertTrue(plugin.isRemoveDuplicateMode());
+
+		plugin.onPostMenuSort(new PostMenuSort());
+
+		Mockito.verify(removeDupEntry).setType(MenuAction.RUNELITE);
+		Mockito.verify(removeDupEntry).setForceLeftClick(true);
+		Mockito.verify(menu).setMenuEntries(Mockito.any());
 	}
 }

@@ -172,6 +172,57 @@ public interface BankTagLayoutsConfig extends Config {
 		return true;
 	}
 
+	@ConfigSection(
+		name = "Duplicate settings",
+		description = "Settings for duplicating and removing duplicates in bank tag layouts.",
+		position = 110
+	)
+	String duplicateSettings = "duplicateSettings";
+
+	@ConfigItem(
+		keyName = "duplicateModeButton",
+		name = "Duplicate mode button",
+		description = "Show duplicate mode toggle button in bank.",
+		position = 1,
+		section = duplicateSettings
+	)
+	default boolean duplicateModeButton() {
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "removeDuplicateModeButton",
+		name = "Remove duplicate mode button",
+		description = "Show remove duplicate mode toggle button in bank.",
+		position = 2,
+		section = duplicateSettings
+	)
+	default boolean removeDuplicateModeButton() {
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "duplicateKeybind",
+		name = "Duplicate item swap",
+		description = "Hold to left-click duplicate items.",
+		position = 3,
+		section = duplicateSettings
+	)
+	default Keybind duplicateKeybind() {
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
+		keyName = "removeDuplicateKeybind",
+		name = "Remove duplicate swap",
+		description = "Hold to left-click remove duplicate items.",
+		position = 4,
+		section = duplicateSettings
+	)
+	default Keybind removeDuplicateKeybind() {
+		return Keybind.NOT_SET;
+	}
+
 	@ConfigSection(name = "Menu entries", description = "", position = 200) String menuEntriesSection = "menuEntriesSection";
 
 	@ConfigItem(
