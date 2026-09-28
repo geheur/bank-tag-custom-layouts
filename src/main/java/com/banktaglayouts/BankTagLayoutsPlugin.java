@@ -11,6 +11,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.Runnables;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import com.google.inject.Module;
 import java.awt.Color;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
@@ -41,6 +42,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
+
+import com.google.inject.util.Providers;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.RequiredArgsConstructor;
@@ -102,6 +105,7 @@ import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.PluginManager;
 import net.runelite.client.plugins.bank.BankSearch;
 import net.runelite.client.plugins.banktags.BankTagsPlugin;
 import net.runelite.client.plugins.banktags.BankTagsService;
@@ -156,7 +160,7 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	@Inject public ItemManager itemManager;
 	@Inject public ConfigManager configManager;
 	@Inject public ClientThread clientThread;
-	@Inject public TabInterface tabInterface;
+	@Inject public PluginManager pluginManager;
 	@Inject public TagManager tagManager;
 	@Inject public BankTagsService bankTagsService;
 	@Inject public FakeItemOverlay fakeItemOverlay;
@@ -167,6 +171,8 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	@Inject public UsedToBeReflection copyPaste;
 	@Inject public LayoutManager layoutManager;
 	@Inject public EventBus eventBus;
+
+	public TabInterface tabInterface;
 
 	// The current indexes for where each widget should appear in the custom bank layout. Should be ignored if there is not tab active.
 	private final Map<Integer, Widget> indexToWidget = new HashMap<>();
@@ -295,6 +301,11 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	@Override
 	protected void startUp()
 	{
+		tabInterface = pluginManager.getPlugins().stream()
+			.filter(BankTagsPlugin.class::isInstance)
+			.findFirst()
+			.map(p -> p.getInjector().getInstance(TabInterface.class))
+			.orElseThrow(IllegalStateException::new);
 		eventBus.register(copyPaste);
 		layoutManager.unregisterAutoLayout("Zigzag");
 		layoutManager.registerAutoLayout(this, "Zigzag", new AutoLayout()
@@ -554,6 +565,16 @@ public class BankTagLayoutsPlugin extends Plugin implements MouseListener, KeyLi
 	BankTagLayoutsConfig getConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(BankTagLayoutsConfig.class);
+	}
+
+	@Override
+	protected Module getPublicModule()
+	{
+		return binder ->
+		{
+			binder.bind(BankTagLayoutsPlugin.class).toProvider(Providers.of(this));
+			binder.bind(BankTagLayoutsConfig.class).toProvider(Providers.of(config));
+		};
 	}
 
 	private void applyLayoutPreview() {
